@@ -64,8 +64,11 @@ public class CharacterState : MonoBehaviour
 
     public void DepleteHealth(float healthDepletion, out bool zeroHealth)
     {
+        float previousHealth = _currentHealth;
         _currentHealth -= healthDepletion;
         zeroHealth = false;
+
+        Debug.Log($"[Health] {gameObject.name}: {previousHealth} -> {_currentHealth} (-{healthDepletion})");
 
         if (_currentHealth <= 0)
         {

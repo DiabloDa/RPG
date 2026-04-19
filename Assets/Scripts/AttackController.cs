@@ -17,6 +17,14 @@ public class AttackController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float attackFailsafeSeconds = 1.2f;
     [SerializeField, Min(0.05f)] private float lightChargeFallbackSeconds = 0.18f;
 
+    [Header("Camera Feedback (timing)")]
+    [Tooltip("Minimum time after the attack starts before the strike shake is allowed to fire. Helps when AnimationEvents are at time 0 or combos re-trigger quickly.")]
+    [SerializeField, Min(0f)] private float lightStrikeShakeMinDelaySeconds = 0.06f;
+    [SerializeField, Min(0f)] private float heavyStrikeShakeMinDelaySeconds = 0.12f;
+
+    [Tooltip("Delay before starting the heavy charge camera raise. Prevents a visible bump when doing quick taps instead of holding.")]
+    [SerializeField, Min(0f)] private float heavyChargeStartDelaySeconds = 0.10f;
+
     [Header("Directional Attacks")]
     [SerializeField, Range(0f, 1f)] private float directionEnterDeadzone = 0.35f;
     [SerializeField, Range(0f, 1f)] private float directionExitDeadzone = 0.25f;
@@ -27,10 +35,17 @@ public class AttackController : MonoBehaviour
     [SerializeField, Min(0f)] private float attackBufferSeconds = 0.18f;
     [SerializeField, Min(0f)] private float directionCommitSeconds = 0.08f;
 
+    [Header("Combo Buffer")]
+    [Tooltip("While an attack is in progress, allow buffered follow-up inputs to persist longer so combos don't feel overly strict.")]
+    [SerializeField, Min(0f)] private float attackBufferSecondsWhileAttacking = 0.75f;
+
     private DamageMessage.DamageLevel _armedStrikeShakeLevel = DamageMessage.DamageLevel.Small;
     private bool _strikeShakeArmed;
     private bool _heavyChargeHeld;
     private bool _cameraChargeHeld;
+
+    private float _attackStartedAt;
+    private bool _strikeShakeScheduled;
 
     [SerializeField] private float lightCost = 15f;
     [SerializeField] private float heavyCost = 35f;
@@ -437,7 +452,8 @@ public class AttackController : MonoBehaviour
         }
 
         float now = Time.time;
-        if (now - _bufferedAttack.queuedAt > attackBufferSeconds)
+        float bufferLifetime = IsAttacking ? Mathf.Max(attackBufferSeconds, attackBufferSecondsWhileAttacking) : attackBufferSeconds;
+        if (now - _bufferedAttack.queuedAt > bufferLifetime)
         {
             _bufferedAttack.type = BufferedAttackType.None;
             return;
@@ -468,7 +484,8 @@ public class AttackController : MonoBehaviour
         }
 
         float now = Time.time;
-        if (now - _bufferedAttack.queuedAt > attackBufferSeconds)
+        float bufferLifetime = IsAttacking ? Mathf.Max(attackBufferSeconds, attackBufferSecondsWhileAttacking) : attackBufferSeconds;
+        if (now - _bufferedAttack.queuedAt > bufferLifetime)
         {
             _bufferedAttack.type = BufferedAttackType.None;
             return;
@@ -521,6 +538,9 @@ public class AttackController : MonoBehaviour
         IsAttacking = true;
         _armedStrikeShakeLevel = DamageMessage.DamageLevel.Small;
         _strikeShakeArmed = true;
+        _attackStartedAt = Time.time;
+        _strikeShakeScheduled = false;
+        CancelInvoke(nameof(FireStrikeShake));
 
         // Small "windup" camera raise for right-click, then it drops on strike.
         _cameraChargeHeld = true;
@@ -568,6 +588,12 @@ public class AttackController : MonoBehaviour
         IsAttacking = true;
         _armedStrikeShakeLevel = DamageMessage.DamageLevel.Big;
         _strikeShakeArmed = true;
+        _attackStartedAt = Time.time;
+        _strikeShakeScheduled = false;
+        CancelInvoke(nameof(FireStrikeShake));
+
+        // If we started from a buffered/performed input, ensure we don't start a delayed charge.
+        CancelInvoke(nameof(BeginHeavyChargeDelayed));
 
         CancelInvoke(nameof(ForceStopAttacking));
         Invoke(nameof(ForceStopAttacking), attackFailsafeSeconds);
@@ -628,13 +654,24 @@ public class AttackController : MonoBehaviour
 
             _heavyChargeHeld = true;
             _cameraChargeHeld = true;
-            CameraImpactShake.TryBeginCharge();
+            // Start the camera raise only if the player actually holds long enough.
+            CancelInvoke(nameof(BeginHeavyChargeDelayed));
+            if (heavyChargeStartDelaySeconds <= 0f)
+            {
+                BeginHeavyChargeDelayed();
+            }
+            else
+            {
+                Invoke(nameof(BeginHeavyChargeDelayed), heavyChargeStartDelaySeconds);
+            }
             return;
         }
 
         // Release before charge completes (cancel)
         if (context.canceled)
         {
+            CancelInvoke(nameof(BeginHeavyChargeDelayed));
+
             // If an attack is already in progress, keep the camera up until the strike moment.
             if (!IsAttacking)
             {
@@ -651,6 +688,9 @@ public class AttackController : MonoBehaviour
         {
             return;
         }
+
+        // Hold interaction performed: stop any pending delayed raise; from here we either attack or buffer.
+        CancelInvoke(nameof(BeginHeavyChargeDelayed));
 
         Vector2 dir = ResolveAttackBlendDirection();
 
@@ -670,6 +710,42 @@ public class AttackController : MonoBehaviour
         }
 
         TryStartHeavyAttack(dir);
+    }
+
+    private void BeginHeavyChargeDelayed()
+    {
+        // Only raise during the dedicated charge phase.
+        if (_heavyChargeHeld && _cameraChargeHeld && !IsAttacking)
+        {
+            CameraImpactShake.TryBeginCharge();
+        }
+    }
+
+    private void ScheduleStrikeShake()
+    {
+        float minDelay = _armedStrikeShakeLevel == DamageMessage.DamageLevel.Big
+            ? heavyStrikeShakeMinDelaySeconds
+            : lightStrikeShakeMinDelaySeconds;
+
+        float elapsed = Time.time - _attackStartedAt;
+        float remaining = Mathf.Max(0f, minDelay - elapsed);
+
+        CancelInvoke(nameof(FireStrikeShake));
+
+        if (remaining <= 0f)
+        {
+            FireStrikeShake();
+            return;
+        }
+
+        _strikeShakeScheduled = true;
+        Invoke(nameof(FireStrikeShake), remaining);
+    }
+
+    private void FireStrikeShake()
+    {
+        _strikeShakeScheduled = false;
+        CameraImpactShake.TryImpact(_armedStrikeShakeLevel);
     }
 
     public void depleteStamina(float amount)
@@ -707,12 +783,10 @@ public class AttackController : MonoBehaviour
 
     public void ToggleAttackHitBox(int hitboxId)
     {
-        if (hitBoxController == null)
+        if (hitBoxController != null)
         {
-            return;
+            hitBoxController.TogglHitBoxes(hitboxId);
         }
-
-        hitBoxController.TogglHitBoxes(hitboxId);
 
         // Strike moment: fire exactly one shake per attack (synced to animation hitbox window).
         if (_strikeShakeArmed)
@@ -721,13 +795,21 @@ public class AttackController : MonoBehaviour
             _heavyChargeHeld = false;
             _cameraChargeHeld = false;
             CancelInvoke(nameof(EndLightChargeFallback));
+            CancelInvoke(nameof(BeginHeavyChargeDelayed));
 
             // Drop the camera from the charge pose right as the strike happens.
             CameraImpactShake.TrySnapDownCharge();
 
-            // One shake per attack type (light=Small, heavy=Big)
-            CameraImpactShake.TryImpact(_armedStrikeShakeLevel);
+            // One shake per attack type, but never earlier than a small delay after attack start.
+            // This fixes combos/FBX clips that have AnimationEvents at time 0.
+            ScheduleStrikeShake();
         }
+    }
+
+    // AnimationEvent compatibility (no-parameter event)
+    public void ToggleAttackHitBox()
+    {
+        ToggleAttackHitBox(-1);
     }
 
     public void cleanupAttackHitBox()
@@ -738,6 +820,8 @@ public class AttackController : MonoBehaviour
 
         CancelInvoke(nameof(ForceStopAttacking));
         CancelInvoke(nameof(EndLightChargeFallback));
+        CancelInvoke(nameof(BeginHeavyChargeDelayed));
+        CancelInvoke(nameof(FireStrikeShake));
 
         _strikeShakeArmed = false;
         _heavyChargeHeld = false;
@@ -766,6 +850,8 @@ public class AttackController : MonoBehaviour
         RestoreAttackRootMotionOverride();
 
         CancelInvoke(nameof(EndLightChargeFallback));
+        CancelInvoke(nameof(BeginHeavyChargeDelayed));
+        CancelInvoke(nameof(FireStrikeShake));
 
         // If we somehow never reached the strike moment, return camera to normal.
         if (_cameraChargeHeld)

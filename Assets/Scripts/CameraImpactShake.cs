@@ -117,8 +117,10 @@ public class CameraImpactShake : MonoBehaviour
     private CinemachineImpulseListener.ImpulseReaction _cachedReactionSettings;
 
     private CinemachineThirdPersonFollow _cmThirdPersonFollow;
+    private CinemachineFollow _cmFollow;
     private bool _cmBaseOffsetCached;
     private Vector3 _cmBaseShoulderOffset;
+    private Vector3 _cmBaseFollowOffset;
     private float _charge01;
     private float _chargeTarget01;
     private float _chargeRaiseY;
@@ -154,10 +156,18 @@ public class CameraImpactShake : MonoBehaviour
         // Remove any residual offsets to avoid leaving the camera displaced.
         RemoveLastOffsets();
 
-        // Restore any heavy-charge offset we applied to the active virtual camera.
-        if (_cmThirdPersonFollow != null && _cmBaseOffsetCached)
+        // Restore any charge offset we applied to the active virtual camera.
+        if (_cmBaseOffsetCached)
         {
-            _cmThirdPersonFollow.ShoulderOffset = _cmBaseShoulderOffset;
+            if (_cmFollow != null)
+            {
+                _cmFollow.FollowOffset = _cmBaseFollowOffset;
+            }
+
+            if (_cmThirdPersonFollow != null)
+            {
+                _cmThirdPersonFollow.ShoulderOffset = _cmBaseShoulderOffset;
+            }
         }
 
         // If we auto-added/configured a Cinemachine listener, mute/restore it so disabling this
@@ -485,11 +495,11 @@ public class CameraImpactShake : MonoBehaviour
             return;
         }
 
-        if (_cmThirdPersonFollow == null)
+        if (_cmFollow == null && _cmThirdPersonFollow == null)
         {
             _cmBaseOffsetCached = false;
-            TryResolveThirdPersonFollow();
-            if (_cmThirdPersonFollow == null)
+            TryResolveCinemachineFollowBody();
+            if (_cmFollow == null && _cmThirdPersonFollow == null)
             {
                 return;
             }
@@ -497,7 +507,16 @@ public class CameraImpactShake : MonoBehaviour
 
         if (!_cmBaseOffsetCached)
         {
-            _cmBaseShoulderOffset = _cmThirdPersonFollow.ShoulderOffset;
+            if (_cmFollow != null)
+            {
+                _cmBaseFollowOffset = _cmFollow.FollowOffset;
+            }
+
+            if (_cmThirdPersonFollow != null)
+            {
+                _cmBaseShoulderOffset = _cmThirdPersonFollow.ShoulderOffset;
+            }
+
             _cmBaseOffsetCached = true;
         }
 
@@ -506,12 +525,23 @@ public class CameraImpactShake : MonoBehaviour
         float speed = _chargeTarget01 > _charge01 ? up : down;
         _charge01 = Mathf.MoveTowards(_charge01, _chargeTarget01, speed * Time.unscaledDeltaTime);
 
-        var shoulder = _cmBaseShoulderOffset;
-        shoulder.y += _chargeRaiseY * _charge01;
-        _cmThirdPersonFollow.ShoulderOffset = shoulder;
+        float yAdd = _chargeRaiseY * _charge01;
+
+        if (_cmFollow != null)
+        {
+            var offset = _cmBaseFollowOffset;
+            offset.y += yAdd;
+            _cmFollow.FollowOffset = offset;
+        }
+        else if (_cmThirdPersonFollow != null)
+        {
+            var shoulder = _cmBaseShoulderOffset;
+            shoulder.y += yAdd;
+            _cmThirdPersonFollow.ShoulderOffset = shoulder;
+        }
     }
 
-    private void TryResolveThirdPersonFollow()
+    private void TryResolveCinemachineFollowBody()
     {
         var outputCam = GetComponent<Camera>();
         if (outputCam == null)
@@ -543,7 +573,9 @@ public class CameraImpactShake : MonoBehaviour
             return;
         }
 
-        _cmThirdPersonFollow = vcamGO.GetComponent<CinemachineThirdPersonFollow>();
+        // Cinemachine v3 uses component-based pipelines. Prefer CinemachineFollow when present.
+        _cmFollow = vcamGO.GetComponent<CinemachineFollow>();
+        _cmThirdPersonFollow = _cmFollow == null ? vcamGO.GetComponent<CinemachineThirdPersonFollow>() : null;
     }
 
     private void BeginCharge(float raiseY, float upSpeed, float downSpeed)
@@ -584,7 +616,17 @@ public class CameraImpactShake : MonoBehaviour
         _charge01 = 0f;
         _chargeTarget01 = 0f;
 
-        if (_cmThirdPersonFollow != null && _cmBaseOffsetCached)
+        if (!_cmBaseOffsetCached)
+        {
+            return;
+        }
+
+        if (_cmFollow != null)
+        {
+            _cmFollow.FollowOffset = _cmBaseFollowOffset;
+        }
+
+        if (_cmThirdPersonFollow != null)
         {
             _cmThirdPersonFollow.ShoulderOffset = _cmBaseShoulderOffset;
         }

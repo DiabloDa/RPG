@@ -511,6 +511,9 @@ MonoBehaviour:
     sender: {fileID: 1266054319}
     amount: 0
     damageLevel: 0
+  requireAttackControllerWindow: 1
+  configureRigidbodyForTriggers: 1
+  debugDamage: 0
 --- !u!1773428102 &407062818
 ParentConstraint:
   m_ObjectHideFlags: 0
@@ -1133,8 +1136,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AttackHitBox
   damageMessage:
     sender: {fileID: 649584538}
-    amount: 100
+    amount: 20
     damageLevel: 2
+  requireAttackControllerWindow: 0
+  configureRigidbodyForTriggers: 0
+  debugDamage: 0
 --- !u!65 &649584540
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -1150,7 +1156,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -1250,7 +1256,7 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
+  m_UseGravity: 0
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
@@ -1984,6 +1990,9 @@ MonoBehaviour:
     sender: {fileID: 762895081}
     amount: 10
     damageLevel: 0
+  requireAttackControllerWindow: 1
+  configureRigidbodyForTriggers: 1
+  debugDamage: 0
 --- !u!1 &802639572
 GameObject:
   m_ObjectHideFlags: 0
@@ -2924,12 +2933,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AttackController
   attackFailsafeSeconds: 1.2
   lightChargeFallbackSeconds: 0.18
+  lightStrikeShakeMinDelaySeconds: 0.06
+  heavyStrikeShakeMinDelaySeconds: 0.12
+  heavyChargeStartDelaySeconds: 0.1
   directionEnterDeadzone: 0.35
   directionExitDeadzone: 0.25
   directionBufferSeconds: 0.2
   attackAxisMagnitude: 0.75
   attackBufferSeconds: 0.18
   directionCommitSeconds: 0.08
+  attackBufferSecondsWhileAttacking: 0.75
   lightCost: 15
   heavyCost: 35
   attackDirectionReferenceOverride: {fileID: 0}
@@ -4522,40 +4535,40 @@ MonoBehaviour:
   small:
     trauma: 0.2
     duration: 0.1
-    frequency: 22
+    frequency: 30
     positionAmplitude: 0.03
-    rotationAmplitudeDegrees: 0.6
+    rotationAmplitudeDegrees: 0.5
   medium:
     trauma: 0.35
-    duration: 0.12
-    frequency: 26
+    duration: 0.14
+    frequency: 22
     positionAmplitude: 0.06
-    rotationAmplitudeDegrees: 1.2
+    rotationAmplitudeDegrees: 0.9
   big:
     trauma: 0.6
-    duration: 0.16
-    frequency: 30
+    duration: 0.2
+    frequency: 16
     positionAmplitude: 0.1
-    rotationAmplitudeDegrees: 2.4
+    rotationAmplitudeDegrees: 1.2
   affectPosition: 1
   affectRotation: 1
-  globalIntensity: 2
+  globalIntensity: 2.48
   preferCinemachineImpulse: 1
-  cinemachineListenerGain: 2
-  cinemachineForceMultiplier: 2
+  cinemachineListenerGain: 1.25
+  cinemachineForceMultiplier: 1.25
   cinemachineUseReactionNoise: 1
-  cinemachineReactionAmplitudeGain: 3
-  cinemachineReactionFrequencyGain: 0.03
-  cinemachineReactionDuration: 3
-  cinemachineReactionPositionAmplitude: 0.25
-  cinemachineReactionRotationAmplitudeDegrees: 1.2
+  cinemachineReactionAmplitudeGain: 1.1
+  cinemachineReactionFrequencyGain: 1
+  cinemachineReactionDuration: 0.22
+  cinemachineReactionPositionAmplitude: 0.01
+  cinemachineReactionRotationAmplitudeDegrees: 0.4
   lightChargeEnabled: 1
-  lightChargeRaiseY: 0.12
+  lightChargeRaiseY: 0.18
   lightChargeUpSpeed: 6
   lightChargeDownSpeed: 10
   heavyChargeEnabled: 1
-  heavyChargeRaiseY: 0.35
-  heavyChargeUpSpeed: 0.6
+  heavyChargeRaiseY: 0.55
+  heavyChargeUpSpeed: 1.25
   heavyChargeDownSpeed: 8
 --- !u!4 &2057508198 stripped
 Transform:

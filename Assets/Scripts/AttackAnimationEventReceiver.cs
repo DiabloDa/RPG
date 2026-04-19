@@ -54,9 +54,37 @@ public class AttackAnimationEventReceiver : MonoBehaviour
 
     // --- Hitboxes ---
 
+    // AnimationEvents can be configured with or without parameters, and sometimes differ in casing.
+    // Provide overloads/aliases so changes to clips/controllers don't silently break hitbox windows.
+    public void ToggleAttackHitBox()
+    {
+        ResolveController()?.ToggleAttackHitBox(-1);
+    }
+
     public void ToggleAttackHitBox(int hitboxId)
     {
         ResolveController()?.ToggleAttackHitBox(hitboxId);
+    }
+
+    public void toggleAttackHitBox()
+    {
+        ToggleAttackHitBox();
+    }
+
+    public void toggleAttackHitBox(int hitboxId)
+    {
+        ToggleAttackHitBox(hitboxId);
+    }
+
+    // Common typo/legacy naming seen in some projects
+    public void TogglHitBoxes()
+    {
+        ToggleAttackHitBox();
+    }
+
+    public void TogglHitBoxes(int hitboxId)
+    {
+        ToggleAttackHitBox(hitboxId);
     }
 
     public void cleanupAttackHitBox()

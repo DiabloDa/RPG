@@ -4,6 +4,9 @@ using UnityEngine;
 public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
 {
     [SerializeField] private DamageMessage damageMessage;
+    [SerializeField] private bool requireAttackControllerWindow = true;
+    [SerializeField] private bool configureRigidbodyForTriggers = true;
+    [SerializeField] private bool debugDamage = false;
 
     private AttackController _attackController;
     private Transform _senderRoot;
@@ -11,17 +14,20 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
 
     private void OnEnable()
     {
-        // Ensure trigger events fire even if the Collider is on a child object.
-        // A kinematic Rigidbody on this GameObject will aggregate child colliders.
-        var rb = GetComponent<Rigidbody>();
-        if (rb == null)
-        {
-            rb = gameObject.AddComponent<Rigidbody>();
-        }
-        rb.isKinematic = true;
-        rb.useGravity = false;
-
         _attackController = GetComponentInParent<AttackController>(true);
+
+        if (configureRigidbodyForTriggers)
+        {
+            // Ensure trigger events fire even if the Collider is on a child object.
+            // A kinematic Rigidbody on this GameObject will aggregate child colliders.
+            var rb = GetComponent<Rigidbody>();
+            if (rb == null)
+            {
+                rb = gameObject.AddComponent<Rigidbody>();
+            }
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
 
         // Auto-fill sender so DamageController can calculate direction and self-hit filtering works.
         _senderRoot = _attackController != null ? _attackController.transform.root : transform.root;
@@ -42,8 +48,8 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
         }
 
         // Only apply damage/feedback during an actual attack window.
-        // If this hitbox can't find an AttackController, fail closed to avoid collision-based damage/shake.
-        if (_attackController == null || !_attackController.IsAttacking)
+        // Default behavior is weapon-style hitboxes driven by an AttackController.
+        if (requireAttackControllerWindow && (_attackController == null || !_attackController.IsAttacking))
         {
             return;
         }
@@ -76,6 +82,12 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
 
         if (receiver != null)
         {
+            if (debugDamage)
+            {
+                Debug.Log(
+                    $"[AttackHitBox] '{name}' hit '{other.name}' amount={damageMessage.amount} level={damageMessage.damageLevel} sender={(damageMessage.sender != null ? damageMessage.sender.name : "<null>")}",
+                    this);
+            }
             SendDamage(receiver);
         }
     }
