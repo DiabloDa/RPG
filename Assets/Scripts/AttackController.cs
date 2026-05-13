@@ -30,6 +30,8 @@ public class AttackController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float directionExitDeadzone = 0.25f;
     [SerializeField, Min(0f)] private float directionBufferSeconds = 0.2f;
     [SerializeField, Range(0f, 1f)] private float attackAxisMagnitude = 0.75f;
+    [Tooltip("If no movement keys are pressed (raw move input is zero), attacks will go to camera forward instead of using the last movement direction.")]
+    [SerializeField] private bool noInputAttacksUseCameraForward = true;
 
     [Header("Input Buffer")]
     [SerializeField, Min(0f)] private float attackBufferSeconds = 0.18f;
@@ -323,6 +325,13 @@ public class AttackController : MonoBehaviour
     {
         float now = Time.time;
 
+        // User expectation: if no keys are pressed, attack where the camera looks.
+        // This avoids using animator damped values or buffered last direction.
+        if (noInputAttacksUseCameraForward && _rawMoveInput.sqrMagnitude < 0.0001f)
+        {
+            return new Vector2(0f, attackAxisMagnitude);
+        }
+
         // If we didn't receive input directly (e.g. AttackController isn't on the PlayerInput object),
         // fall back to the animator's current locomotion parameters.
         Vector2 effectiveInput = _rawMoveInput;
@@ -376,6 +385,12 @@ public class AttackController : MonoBehaviour
 
     private void LockAttackDirection(Vector2 blendDir)
     {
+        if (_unlockCoroutine != null)
+        {
+            StopCoroutine(_unlockCoroutine);
+            _unlockCoroutine = null;
+        }
+
         _attackDirectionLocked = true;
         _lockedAttackBlendDir = blendDir;
 
@@ -416,6 +431,70 @@ public class AttackController : MonoBehaviour
         _attackDirectionLocked = false;
         _lockedAttackBlendDir = Vector2.zero;
         _hasAttackTargetRotation = false;
+    }
+
+    // Smoothly blend animator attack direction floats back to resolved movement direction
+    private Coroutine _unlockCoroutine;
+
+    private void StartSmoothUnlockAttackDirection(float duration)
+    {
+        // If already smooth unlocking, restart.
+        if (_unlockCoroutine != null)
+        {
+            StopCoroutine(_unlockCoroutine);
+            _unlockCoroutine = null;
+        }
+
+        // If animator is null or duration zero, unlock immediately.
+        if (animator == null || duration <= 0f)
+        {
+            UnlockAttackDirection();
+            return;
+        }
+
+        // Capture current animator floats first, then unlock so LateUpdate doesn't overwrite.
+        float startX = animator.GetFloat(SpeedXHash);
+        float startY = animator.GetFloat(SpeedYHash);
+        UnlockAttackDirection();
+
+        _unlockCoroutine = StartCoroutine(SmoothUnlockRoutine(duration, startX, startY));
+    }
+
+    private System.Collections.IEnumerator SmoothUnlockRoutine(float duration, float startX, float startY)
+    {
+        float startTime = Time.time;
+        float endTime = startTime + duration;
+
+        while (Time.time < endTime)
+        {
+            float t = Mathf.InverseLerp(startTime, endTime, Time.time);
+            // Smooth step for nicer curve
+            t = Mathf.SmoothStep(0f, 1f, t);
+
+            // Resolve the target blend direction from current input/state
+            Vector2 target = ResolveAttackBlendDirection();
+
+            float curX = Mathf.Lerp(startX, target.x, t);
+            float curY = Mathf.Lerp(startY, target.y, t);
+
+            if (animator != null)
+            {
+                animator.SetFloat(SpeedXHash, curX);
+                animator.SetFloat(SpeedYHash, curY);
+            }
+
+            yield return null;
+        }
+
+        // Ensure final values applied then unlock
+        Vector2 final = ResolveAttackBlendDirection();
+        if (animator != null)
+        {
+            animator.SetFloat(SpeedXHash, final.x);
+            animator.SetFloat(SpeedYHash, final.y);
+        }
+
+        _unlockCoroutine = null;
     }
 
     private void BufferAttack(BufferedAttackType type, Vector2 blendDir)
@@ -828,6 +907,9 @@ public class AttackController : MonoBehaviour
         _cameraChargeHeld = false;
         CameraImpactShake.TryEndCharge();
 
+        // Smoothly blend animator parameters back to movement to avoid abrupt pose snap.
+        StartSmoothUnlockAttackDirection(0.22f);
+
         if (hitBoxController == null)
         {
             TryConsumeBufferedAttack();
@@ -860,6 +942,9 @@ public class AttackController : MonoBehaviour
             _cameraChargeHeld = false;
             CameraImpactShake.TryEndCharge();
         }
+
+        // Smoothly blend animator parameters back to movement to avoid abrupt pose snap.
+        StartSmoothUnlockAttackDirection(0.22f);
 
         _strikeShakeArmed = false;
         TryConsumeBufferedAttack();

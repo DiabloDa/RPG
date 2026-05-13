@@ -23,7 +23,8 @@ public class IdleState : State
     public override void Update()
     {
         timer += Time.deltaTime;
-        if(enemy.PlayerInRange(5f))
+        // Always chase when a player target is assigned.
+        if (enemy.player != null)
         {
             enemy.ChangeState(new ChaseState(enemy));
             return;

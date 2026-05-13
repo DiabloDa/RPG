@@ -17,6 +17,44 @@ public class DamageController : MonoBehaviour
     private void Awake()
     {
         animator = GetComponent<Animator>();
+        if (animator == null)
+        {
+            animator = GetComponentInChildren<Animator>(true);
+        }
+    }
+
+    public void PlayDamageReaction(Transform attacker, DamageMessage.DamageLevel level, bool isDead)
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        if (attacker == null)
+        {
+            animator.SetInteger("damageLevel", (int)level);
+            animator.SetTrigger("Damage");
+            return;
+        }
+
+        Vector3 damageDirection = (attacker.position - transform.position).normalized;
+        damageDirection = Vector3.ProjectOnPlane(damageDirection, transform.up);
+
+        if (damageDirection.sqrMagnitude < 0.0001f)
+        {
+            damageDirection = transform.forward;
+        }
+
+        float damageAngle = Vector3.SignedAngle(transform.forward, damageDirection, transform.up);
+        animator.SetFloat("damageDirection", (damageAngle / 180f) * 0.5f + 0.5f);
+        animator.SetInteger("damageLevel", (int)level);
+        animator.SetTrigger("Damage");
+
+        if (isDead)
+        {
+            animator.ResetTrigger("Damage");
+            animator.SetTrigger("Die");
+        }
     }
 
     public void EnqueueDamage(DamageMessage damage)

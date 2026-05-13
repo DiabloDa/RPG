@@ -490,8 +490,11 @@ public class CameraImpactShake : MonoBehaviour
 
     private void UpdateChargeOffset()
     {
-        if (_chargeRaiseY <= 0f && _chargeTarget01 <= 0f && _charge01 <= 0f)
+        // If charge is fully at rest, do nothing.
+        // NOTE: _chargeRaiseY can stay > 0 after a charge ends, so don't use it as a gate.
+        if (_chargeTarget01 <= 0f && _charge01 <= 0f)
         {
+            _cmBaseOffsetCached = false;
             return;
         }
 
@@ -529,8 +532,9 @@ public class CameraImpactShake : MonoBehaviour
 
         if (_cmFollow != null)
         {
-            var offset = _cmBaseFollowOffset;
-            offset.y += yAdd;
+            // Preserve current X/Z (e.g. player-controlled orbit) and only apply the Y raise.
+            var offset = _cmFollow.FollowOffset;
+            offset.y = _cmBaseFollowOffset.y + yAdd;
             _cmFollow.FollowOffset = offset;
         }
         else if (_cmThirdPersonFollow != null)

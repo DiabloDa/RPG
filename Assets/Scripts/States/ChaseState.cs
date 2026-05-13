@@ -16,19 +16,17 @@ public class ChaseState : State
 
     public override void Update()
     {
-        if (enemy.player != null) return;
-
-        enemy.agent.SetDestination(enemy.player.position);
-        
-        if(!enemy.PlayerInRange(6f))
+        if (enemy.player == null)
         {
             enemy.ChangeState(new IdleState(enemy));
-
+            return;
         }
+
+        enemy.agent.SetDestination(enemy.player.position);
     }
 
     public override void Exit()
     {
-        throw new System.NotImplementedException(); 
+        // no-op
     }
 }

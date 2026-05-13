@@ -23,6 +23,21 @@ public class EnemyAI : MonoBehaviour
 
     private int waypointIndex = 0;
 
+    private float _pauseUntil;
+    private bool _wasPaused;
+
+    public void PauseForSeconds(float seconds)
+    {
+        if (seconds <= 0f) return;
+        _pauseUntil = Mathf.Max(_pauseUntil, Time.time + seconds);
+
+        if (agent != null)
+        {
+            agent.isStopped = true;
+            agent.ResetPath();
+        }
+    }
+
     static class Hash
     {
         public static readonly int SpeedX = Animator.StringToHash("SpeedX");
@@ -32,20 +47,54 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
+        if (agent == null) agent = GetComponent<NavMeshAgent>();
+        if (animator == null) animator = GetComponent<Animator>();
+
+        if (agent == null)
+        {
+            Debug.LogError("[EnemyAI] Missing NavMeshAgent.", this);
+            enabled = false;
+            return;
+        }
+
         agent.updatePosition = true;
         agent.updateRotation = false;
 
-        animator.applyRootMotion = false;
+        if (animator != null)
+        {
+            animator.applyRootMotion = false;
+        }
 
         ChangeState(new IdleState(this));
     }
 
     private void Update()
     {
-        
-        currentState?.Update();
+        bool paused = Time.time < _pauseUntil;
 
-        Vector3 desird = agent.desiredVelocity;
+        if (paused)
+        {
+            _wasPaused = true;
+            if (agent != null)
+            {
+                agent.isStopped = true;
+            }
+        }
+        else
+        {
+            if (_wasPaused)
+            {
+                _wasPaused = false;
+                if (agent != null)
+                {
+                    agent.isStopped = false;
+                }
+            }
+
+            currentState?.Update();
+        }
+
+        Vector3 desird = agent != null ? agent.desiredVelocity : Vector3.zero;
         desird.y = 0;
 
         if(desird.sqrMagnitude > 0.0001f)
@@ -58,17 +107,20 @@ public class EnemyAI : MonoBehaviour
 
         Vector3 dirlocal = desird.sqrMagnitude > 0.001f ? transform.InverseTransformDirection(desird.normalized) : Vector3.zero;
 
-        float denom = Mathf.Max(0.01f, agent.speed);
-        float mag01 = Mathf.Clamp01(agent.velocity.magnitude / denom);
+        float denom = agent != null ? Mathf.Max(0.01f, agent.speed) : 1f;
+        float mag01 = agent != null ? Mathf.Clamp01(agent.velocity.magnitude / denom) : 0f;
 
         float targetX = dirlocal.x * mag01;
         float targetY = dirlocal.y * mag01;
 
-        float curX = Mathf.Lerp(animator.GetFloat(Hash.SpeedX), targetX, Time.deltaTime*aniSmooth);
-        float curY = Mathf.Lerp(animator.GetFloat(Hash.SpeedY), targetY, Time.deltaTime * aniSmooth);
+        if (animator != null)
+        {
+            float curX = Mathf.Lerp(animator.GetFloat(Hash.SpeedX), targetX, Time.deltaTime*aniSmooth);
+            float curY = Mathf.Lerp(animator.GetFloat(Hash.SpeedY), targetY, Time.deltaTime * aniSmooth);
 
-        animator.SetFloat(Hash.SpeedX, curX);
-        animator.SetFloat (Hash.SpeedY, curY);
+            animator.SetFloat(Hash.SpeedX, curX);
+            animator.SetFloat(Hash.SpeedY, curY);
+        }
     }
 
     public void ChangeState(State newState)

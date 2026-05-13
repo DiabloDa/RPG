@@ -18,6 +18,20 @@ namespace Clases.Clase_2.Scripts
         [SerializeField] private Camera camera;
         [SerializeField] private float angularSpeed;
 
+        [Header("Facing")]
+        [Tooltip("If true, the character will face the camera's yaw (projected on the floor) even when not aiming.")]
+        [SerializeField] private bool alwaysFaceCameraYaw = true;
+        [Tooltip("If true, the character can rotate to camera yaw even while standing still.")]
+        [SerializeField] private bool rotateToCameraWhenIdle = true;
+
+        [Header("Facing Smoothing")]
+        [Tooltip("Smooths rotation when aligning to camera yaw (does not affect attack-direction rotation).")]
+        [SerializeField] private bool smoothFaceCameraYaw = true;
+        [SerializeField, Min(0f)] private float faceCameraYawSmoothing = 10f;
+        [Tooltip("For a brief moment after an attack ends, use a slower smoothing value so the character doesn't snap back abruptly.")]
+        [SerializeField, Min(0f)] private float faceCameraYawSmoothingAfterAttack = 4f;
+        [SerializeField, Min(0f)] private float afterAttackSmoothingSeconds = 0.25f;
+
         [Header("Tuning")]
         [SerializeField] private float movementInputScale = 1f;
         private Quaternion targetRotation;
@@ -27,9 +41,17 @@ namespace Clases.Clase_2.Scripts
         private Animator _animator;
         private AttackController _attackController;
 
+        private bool _wasAttackLocked;
+        private float _afterAttackTimer;
+
         private void Awake()
         {
             _animator = GetComponent<Animator>();
+
+            if (camera == null)
+            {
+                camera = Camera.main;
+            }
 
             _attackController = GetComponent<AttackController>();
             if (_attackController == null)
@@ -51,13 +73,30 @@ namespace Clases.Clase_2.Scripts
             // Uncomment temporarily if you need to debug rotation solve.
             // Debug.Log("[CharacterMovement] Solve rotations");
 #endif
+            if (camera == null)
+            {
+                return;
+            }
+
             Vector3 floorNormal = transform.up;
             Vector3 cameraRealForward = camera.transform.forward;
             float angleInterpolator = Mathf.Abs(Vector3.Dot(cameraRealForward, floorNormal));
             Vector3 cameraForward = Vector3.Lerp(cameraRealForward, camera.transform.up, angleInterpolator).normalized;
-            Vector3 characterForward = Vector3.ProjectOnPlane(cameraForward,floorNormal).normalized;
-            Debug.DrawLine(transform.position, transform.position + characterForward*3, Color.green,5);
-            targetRotation = Quaternion.LookRotation(characterForward,floorNormal);
+
+            Vector3 planarForward = Vector3.ProjectOnPlane(cameraForward, floorNormal);
+            if (planarForward.sqrMagnitude < 0.0001f)
+            {
+                planarForward = Vector3.ProjectOnPlane(cameraRealForward, floorNormal);
+            }
+
+            if (planarForward.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            planarForward = planarForward.normalized;
+            Debug.DrawLine(transform.position, transform.position + planarForward * 3f, Color.green, 0.1f);
+            targetRotation = Quaternion.LookRotation(planarForward, floorNormal);
         }
 
         public void OnMove(InputAction.CallbackContext ctx)
@@ -118,20 +157,55 @@ namespace Clases.Clase_2.Scripts
 
             bool isAiming = ParentCharacter != null && ParentCharacter.IsAiming;
 
+            bool attackLocked = _attackController != null && (_attackController.IsAttackDirectionLocked || _attackController.IsAttacking);
+
+            if (attackLocked)
+            {
+                _wasAttackLocked = true;
+                _afterAttackTimer = 0f;
+            }
+            else if (_wasAttackLocked)
+            {
+                _wasAttackLocked = false;
+                _afterAttackTimer = afterAttackSmoothingSeconds;
+            }
+
+            if (_afterAttackTimer > 0f)
+            {
+                _afterAttackTimer = Mathf.Max(0f, _afterAttackTimer - Time.deltaTime);
+            }
+
+            bool shouldFaceCamera = (alwaysFaceCameraYaw || isAiming) && !attackLocked;
+
             // Only align the character to the camera while aiming. Otherwise, preserve the current facing
             // (e.g. keep the direction you last attacked towards instead of snapping back to "front").
-            if (isAiming)
+            if (shouldFaceCamera)
             {
                 SolveCharacterRotation();
-                ApplyCharacterRotation();
+                ApplyCharacterRotation(rotateToCameraWhenIdle);
             }
         }
 
-        private void ApplyCharacterRotation()
+        private void ApplyCharacterRotation(bool allowIdleRotation)
         {
             float motionMagnitud = Mathf.Sqrt(speedX.TargetValue * speedX.TargetValue + speedY.TargetValue * speedY.TargetValue);
-            float rotationSpeed = Mathf.SmoothStep(0, .01f, motionMagnitud);
-            transform.rotation = Quaternion.RotateTowards(transform.rotation,targetRotation,angularSpeed*rotationSpeed);
+            float rotationSpeed = allowIdleRotation ? 1f : Mathf.SmoothStep(0, .01f, motionMagnitud);
+
+            if (rotationSpeed <= 0f)
+            {
+                return;
+            }
+
+            if (smoothFaceCameraYaw)
+            {
+                float k = _afterAttackTimer > 0f ? faceCameraYawSmoothingAfterAttack : faceCameraYawSmoothing;
+                k = Mathf.Max(0f, k);
+                float t = k <= 0f ? 1f : 1f - Mathf.Exp(-k * Time.deltaTime);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, t);
+                return;
+            }
+
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, angularSpeed * rotationSpeed);
         }
 
         public Character ParentCharacter { get; set; }

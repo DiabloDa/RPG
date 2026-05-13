@@ -15,21 +15,19 @@ public class PatrolState : State
 
     public override void Update()
     {
-        if(enemy.PlayerInRange(5f))
+        // Always chase when a player target is assigned.
+        if (enemy.player != null)
         {
-
-        }
-
-
-        if(Vector3.Distance(enemy.transform.position, enemy.transform.position)<5f)
             enemy.ChangeState(new ChaseState(enemy));
+            return;
+        }
 
         if (!enemy.agent.pathPending && enemy.agent.remainingDistance < 0.05f) enemy.NextWaypoint();
     }
 
     public override void Exit()
     {
-        throw new System.NotImplementedException();
+        // no-op
     }
 
 }
