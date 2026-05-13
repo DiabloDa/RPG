@@ -4,10 +4,17 @@ public class EnemyMeleeAttack : MonoBehaviour
 {
     [Header("Attack")]
     [SerializeField] private float damage = 6f;
-    [SerializeField] private float attackRange = 1.35f;
+    [SerializeField, Min(0.05f)] private float attackRange = 0.9f;
     [SerializeField] private float attackCooldown = 0.25f;
     [SerializeField, Min(0f)] private float pauseAfterHitSeconds = 2.5f;
     [SerializeField] private DamageMessage.DamageLevel damageLevel = DamageMessage.DamageLevel.Small;
+
+    [Header("Attack Animation (optional)")]
+    [SerializeField] private bool playAttackAnimation = true;
+    [SerializeField] private string attackTriggerParam = "Attack";
+    [Tooltip("Animator state name to wait for. If it doesn't match, we fall back to pauseAfterHitSeconds.")]
+    [SerializeField] private string attackStateName = "Zombie Attack";
+    [SerializeField, Min(0f)] private float attackAnimFallbackSeconds = 0.9f;
 
     [Header("Targeting")]
     [SerializeField] private LayerMask hitMask = ~0;
@@ -15,6 +22,40 @@ public class EnemyMeleeAttack : MonoBehaviour
     [SerializeField, Min(0f)] private float attackOriginHeight = 1.0f;
 
     private float nextAttackTime;
+
+    private Animator _enemyAnimator;
+    private int _attackTriggerHash;
+    private bool _hasAttackTrigger;
+    private int _attackStateHash;
+    private Coroutine _attackRoutine;
+
+    private void Awake()
+    {
+        _enemyAnimator = GetComponentInChildren<Animator>(true);
+        CacheAttackAnimatorParams();
+    }
+
+    private void CacheAttackAnimatorParams()
+    {
+        _hasAttackTrigger = false;
+        _attackTriggerHash = Animator.StringToHash(attackTriggerParam);
+        _attackStateHash = Animator.StringToHash(attackStateName);
+
+        if (_enemyAnimator == null)
+        {
+            return;
+        }
+
+        var parameters = _enemyAnimator.parameters;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (parameters[i].name == attackTriggerParam && parameters[i].type == AnimatorControllerParameterType.Trigger)
+            {
+                _hasAttackTrigger = true;
+                break;
+            }
+        }
+    }
 
     private void Update()
     {
@@ -56,7 +97,7 @@ public class EnemyMeleeAttack : MonoBehaviour
                 }
 
                 ApplyPostHitPause();
-                float lockout = Mathf.Max(attackCooldown, pauseAfterHitSeconds);
+                float lockout = Mathf.Max(attackCooldown, pauseAfterHitSeconds, attackAnimFallbackSeconds);
                 nextAttackTime = Time.time + Mathf.Max(0.05f, lockout);
                 return;
             }
@@ -65,20 +106,125 @@ public class EnemyMeleeAttack : MonoBehaviour
 
     private void ApplyPostHitPause()
     {
+        // Prefer pausing until the attack animation finishes.
+        if (playAttackAnimation && _enemyAnimator != null && _hasAttackTrigger)
+        {
+            _enemyAnimator.ResetTrigger(_attackTriggerHash);
+            _enemyAnimator.SetTrigger(_attackTriggerHash);
+
+            if (_attackRoutine != null)
+            {
+                StopCoroutine(_attackRoutine);
+            }
+
+            _attackRoutine = StartCoroutine(PauseUntilAttackAnimationEnds());
+            return;
+        }
+
+        // Fallback: fixed pause time.
         float pause = Mathf.Max(0f, pauseAfterHitSeconds);
         if (pause <= 0f) return;
+        PauseMovementForSeconds(pause);
+    }
 
+    private void PauseMovementForSeconds(float seconds)
+    {
         var chase = GetComponent<EnemySimpleChase>();
         if (chase != null)
         {
-            chase.PauseForSeconds(pause);
+            chase.PauseForSeconds(seconds);
         }
 
         var ai = GetComponent<EnemyAI>();
         if (ai != null)
         {
-            ai.PauseForSeconds(pause);
+            ai.PauseForSeconds(seconds);
         }
+    }
+
+    private void ResumeMovementNow()
+    {
+        var chase = GetComponent<EnemySimpleChase>();
+        if (chase != null)
+        {
+            chase.ResumeNow();
+        }
+
+        var ai = GetComponent<EnemyAI>();
+        if (ai != null)
+        {
+            ai.ResumeNow();
+        }
+    }
+
+    private System.Collections.IEnumerator PauseUntilAttackAnimationEnds()
+    {
+        // Ensure the enemy stays still while the attack plays.
+        PauseMovementForSeconds(999f);
+
+        float minPauseEnd = Time.time + Mathf.Max(0f, pauseAfterHitSeconds);
+
+        // Wait a moment for the animator to enter the attack state.
+        float enterTimeout = Time.time + 0.35f;
+        bool entered = false;
+
+        while (Time.time < enterTimeout)
+        {
+            if (IsInAttackState())
+            {
+                entered = true;
+                break;
+            }
+
+            yield return null;
+        }
+
+        float hardTimeout = Time.time + Mathf.Max(0.1f, attackAnimFallbackSeconds);
+
+        if (entered)
+        {
+            // Wait until the attack finishes (normalizedTime >= 1) or state changes.
+            while (Time.time < hardTimeout)
+            {
+                if (!IsInAttackState())
+                {
+                    break;
+                }
+
+                var s = _enemyAnimator.GetCurrentAnimatorStateInfo(0);
+                if (s.normalizedTime >= 1f)
+                {
+                    break;
+                }
+
+                yield return null;
+            }
+        }
+
+        // Guarantee minimum pause if requested.
+        while (Time.time < minPauseEnd)
+        {
+            yield return null;
+        }
+
+        ResumeMovementNow();
+        _attackRoutine = null;
+    }
+
+    private bool IsInAttackState()
+    {
+        if (_enemyAnimator == null) return false;
+
+        var cur = _enemyAnimator.GetCurrentAnimatorStateInfo(0);
+        if (cur.shortNameHash == _attackStateHash || cur.IsName(attackStateName)) return true;
+
+        if (_enemyAnimator.IsInTransition(0))
+        {
+            var next = _enemyAnimator.GetNextAnimatorStateInfo(0);
+            if (next.shortNameHash == _attackStateHash || next.IsName(attackStateName)) return true;
+        }
+
+        return false;
     }
 
     private static bool LooksLikePlayer(Collider col)
