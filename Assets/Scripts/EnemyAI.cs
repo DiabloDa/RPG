@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.XR;
+using System;
 
 public class EnemyAI : MonoBehaviour 
 {
@@ -8,11 +9,8 @@ public class EnemyAI : MonoBehaviour
     private State currentState;
 
     public NavMeshAgent agent;
-
     public Transform player;
-
     public Transform[] waypoints;
-
     public Animator animator;
 
     [Header("movement")]
@@ -35,7 +33,7 @@ public class EnemyAI : MonoBehaviour
     private float _pauseUntil;
     private bool _wasPaused;
 
-    public void PauseForSeconds(float seconds)
+   /* public void PauseForSeconds(float seconds)
     {
         if (seconds <= 0f) return;
         _pauseUntil = Mathf.Max(_pauseUntil, Time.time + seconds);
@@ -56,18 +54,19 @@ public class EnemyAI : MonoBehaviour
         {
             agent.isStopped = false;
         }
-    }
+    }*/
 
     static class Hash
     {
         public static readonly int SpeedX = Animator.StringToHash("SpeedX");
         public static readonly int SpeedY = Animator.StringToHash("SpeedY");
-
     }
 
     private void Start()
     {
-        if (agent == null) agent = GetComponent<NavMeshAgent>();
+        ChangeState(new IdleState(this));
+
+        /*if (agent == null) agent = GetComponent<NavMeshAgent>();
         if (animator == null) animator = GetComponent<Animator>();
 
         if (animator == null)
@@ -98,10 +97,10 @@ public class EnemyAI : MonoBehaviour
             CacheAnimatorParams();
         }
 
-        ChangeState(new IdleState(this));
+        ChangeState(new IdleState(this));*/
     }
 
-    private void CacheAnimatorParams()
+   /* private void CacheAnimatorParams()
     {
         _hasIsMoving = false;
         _hasMoveSpeed = false;
@@ -138,11 +137,11 @@ public class EnemyAI : MonoBehaviour
         {
             animator.SetFloat(_moveSpeedHash, moving ? 1f : 0f);
         }
-    }
+    }*/
 
     private void Update()
     {
-        bool paused = Time.time < _pauseUntil;
+        /*bool paused = Time.time < _pauseUntil;
 
         if (paused)
         {
@@ -165,19 +164,23 @@ public class EnemyAI : MonoBehaviour
                 }
             }
 
-            currentState?.Update();
-        }
+            
+        }*/
 
-        Vector3 desird = agent != null ? agent.desiredVelocity : Vector3.zero;
+        currentState?.Update();
+
+       // Vector3 desird = agent != null ? agent.desiredVelocity : Vector3.zero;
+        Vector3 desird = agent.desiredVelocity;
         desird.y = 0;
 
-        bool moving = desird.sqrMagnitude > 0.01f;
-        if (!paused)
+       // bool moving = desird.sqrMagnitude > 0.01f;
+
+       /* if (!paused)
         {
             SetAnimatorMoving(moving);
-        }
+        }*/
 
-        if(desird.sqrMagnitude > 0.0001f)
+        if(desird.sqrMagnitude > 0.001f)
         {
             Quaternion look = Quaternion.LookRotation(desird, Vector3.up);
             transform.rotation = Quaternion.Slerp(transform.rotation, look, rotationSmooth*Time.deltaTime);
@@ -193,14 +196,14 @@ public class EnemyAI : MonoBehaviour
         float targetX = dirlocal.x * mag01;
         float targetY = dirlocal.y * mag01;
 
-        if (animator != null)
-        {
+        //if (animator != null)
+       // {
             float curX = Mathf.Lerp(animator.GetFloat(Hash.SpeedX), targetX, Time.deltaTime*aniSmooth);
             float curY = Mathf.Lerp(animator.GetFloat(Hash.SpeedY), targetY, Time.deltaTime * aniSmooth);
 
             animator.SetFloat(Hash.SpeedX, curX);
             animator.SetFloat(Hash.SpeedY, curY);
-        }
+     //   }
     }
 
     public void ChangeState(State newState)

@@ -294,10 +294,10 @@ public class EnemyWaveSpawner : MonoBehaviour
         }
 
         // Ensure the enemy can damage the player.
-        if (enemyGo.GetComponent<EnemyMeleeAttack>() == null)
+       /* if (enemyGo.GetComponent<EnemyMeleeAttack>() == null)
         {
             enemyGo.AddComponent<EnemyMeleeAttack>();
-        }
+        }*/
     }
 
     private Transform ResolvePlayerTransform()
