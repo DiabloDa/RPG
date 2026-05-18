@@ -41,14 +41,21 @@ public class AttackController : MonoBehaviour
     [Tooltip("While an attack is in progress, allow buffered follow-up inputs to persist longer so combos don't feel overly strict.")]
     [SerializeField, Min(0f)] private float attackBufferSecondsWhileAttacking = 0.75f;
 
+    [Header("Attack Cooldown")]
+    [Tooltip("Minimum seconds between attack completions. Prevents spamming attacks too quickly.")]
+    [SerializeField, Min(0f)] private float attackCooldownSeconds = 1.5f;
+
     private DamageMessage.DamageLevel _armedStrikeShakeLevel = DamageMessage.DamageLevel.Small;
     private bool _strikeShakeArmed;
     private bool _heavyChargeHeld;
     private bool _cameraChargeHeld;
 
     private float _attackStartedAt;
+    private float _nextAttackAllowedTime;
     private bool _strikeShakeScheduled;
     private Coroutine _pendingHitboxOpenRoutine;
+
+    [SerializeField] private bool debugDamage = true;
 
     [SerializeField] private float lightCost = 15f;
     [SerializeField] private float heavyCost = 35f;
@@ -87,8 +94,13 @@ public class AttackController : MonoBehaviour
     [SerializeField, Min(0f)] private float autoStrikeDelayLight = 0.12f;
     [SerializeField, Min(0f)] private float autoStrikeWindowLight = 0.08f;
     [Tooltip("Heavy strike impact timing in seconds after the attack starts. Set this to the moment the weapon actually lands, after the windup finishes.")]
-    [SerializeField, Min(0f)] private float autoStrikeDelayHeavy = 0.42f;
+    [SerializeField, Min(0f)] private float autoStrikeDelayHeavy = 0.55f;
     [SerializeField, Min(0f)] private float autoStrikeWindowHeavy = 0.14f;
+
+    [Header("Damage Gating")]
+    [Tooltip("Minimum seconds that must pass after attack start before any damage can be applied. Prevents charge/windup from hurting. Should be >= autoStrikeDelayHeavy.")]
+    [SerializeField, Min(0f)] private float minDamageDelaySeconds = 0.56f;
+
     [Header("Aggressive Strike (fallback)")]
     [Tooltip("If true, perform an aggressive OverlapSphere strike at the attack origin to catch enemies even if hitboxes miss.")]
     [SerializeField] private bool aggressiveOverlapStrike = true;
@@ -96,6 +108,22 @@ public class AttackController : MonoBehaviour
     [SerializeField] private Vector3 aggressiveOffset = new Vector3(0f, 0.9f, 1.0f);
 
     public bool IsAttackDirectionLocked => _attackDirectionLocked;
+
+    public bool IsCurrentlyInDamageWindow()
+    {
+        return IsInDamageWindow();
+    }
+
+    public float GetTimeSinceAttackStart()
+    {
+        if (!IsAttacking) return -1f;
+        return Time.time - _attackStartedAt;
+    }
+
+    public float GetMinDamageDelay()
+    {
+        return minDamageDelaySeconds;
+    }
 
     private enum BufferedAttackType
     {
@@ -577,7 +605,17 @@ public class AttackController : MonoBehaviour
             return;
         }
 
+        // Check attack cooldown to prevent spam
         float now = Time.time;
+        if (now < _nextAttackAllowedTime)
+        {
+            if (debugDamage)
+            {
+                Debug.Log($"[AttackController] Attack buffered but on cooldown. Next allowed: {_nextAttackAllowedTime - now:F2}s", this);
+            }
+            return;
+        }
+
         float bufferLifetime = IsAttacking ? Mathf.Max(attackBufferSeconds, attackBufferSecondsWhileAttacking) : attackBufferSeconds;
         if (now - _bufferedAttack.queuedAt > bufferLifetime)
         {
@@ -677,6 +715,13 @@ public class AttackController : MonoBehaviour
             _cameraChargeHeld = false;
             CameraImpactShake.TryEndCharge();
             return false;
+        }
+
+        // Safety: close any stale hitboxes before arming a new heavy window.
+        if (hitBoxController != null)
+        {
+            hitBoxController.cleanupHitBoxes();
+            AttackHitBox.ClearWindowHits();
         }
 
         LockAttackDirection(blendDir);
@@ -943,6 +988,13 @@ public class AttackController : MonoBehaviour
         _cameraChargeHeld = false;
         CameraImpactShake.TryEndCharge();
 
+        // Set attack cooldown so the next attack can't start immediately
+        _nextAttackAllowedTime = Time.time + attackCooldownSeconds;
+        if (debugDamage)
+        {
+            Debug.Log($"[AttackController] Attack ended. Next allowed at {_nextAttackAllowedTime:F3} (cooldown: {attackCooldownSeconds}s)", this);
+        }
+
         // Smoothly blend animator parameters back to movement to avoid abrupt pose snap.
         StartSmoothUnlockAttackDirection(0.22f);
 
@@ -1024,6 +1076,24 @@ public class AttackController : MonoBehaviour
             : lightStrikeShakeMinDelaySeconds;
     }
 
+    private bool IsInDamageWindow()
+    {
+        if (!IsAttacking)
+        {
+            return false;
+        }
+
+        float elapsed = Time.time - _attackStartedAt;
+        bool inWindow = elapsed >= minDamageDelaySeconds;
+        
+        if (!inWindow && debugDamage)
+        {
+            Debug.Log($"[AttackController] Blocked damage at {elapsed:F3}s (waiting for {minDamageDelaySeconds}s minimum)", this);
+        }
+
+        return inWindow;
+    }
+
     private void TryOpenAttackHitBox(int hitboxId)
     {
         if (hitBoxController == null)
@@ -1083,6 +1153,16 @@ public class AttackController : MonoBehaviour
     private void DirectDamageFromHitboxes()
     {
         if (hitBoxController == null) return;
+        
+        // Respect minimum damage delay so charge/windup doesn't hurt.
+        if (!IsInDamageWindow())
+        {
+            if (debugDamage)
+            {
+                Debug.Log($"[AttackController] DirectDamageFromHitboxes blocked (not in damage window yet)", this);
+            }
+            return;
+        }
 
         var hitBoxes = hitBoxController.HitBoxes;
         if (hitBoxes == null || hitBoxes.Length == 0) return;
@@ -1139,12 +1219,11 @@ public class AttackController : MonoBehaviour
                         if (ahb != null)
                         {
                             baseAmount = ahb.GetBaseDamage();
-                            dmg.damageLevel = ahb.GetDefaultDamageLevel();
                         }
-                        else
-                        {
-                            dmg.damageLevel = CurrentDamageLevel;
-                        }
+
+                        // Always use the attack currently being executed.
+                        // Using the hitbox serialized default can force Heavy into Small damage.
+                        dmg.damageLevel = CurrentDamageLevel;
 
                         // Apply multiplier based on damage level
                         float multiplier = dmg.damageLevel switch

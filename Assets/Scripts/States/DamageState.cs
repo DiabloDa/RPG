@@ -12,6 +12,8 @@ public class DamageState : State
 
     public override void Enter()
     {
+        Debug.Log($"[DamageState] Entered. Duration={_durationSeconds}s for {enemy.gameObject.name}", enemy);
+        
         if (enemy.agent != null)
         {
             enemy.agent.isStopped = true;

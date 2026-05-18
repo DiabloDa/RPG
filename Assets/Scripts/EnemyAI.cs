@@ -113,6 +113,9 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
 
         // Report enemy health in a single, easy-to-filter console line.
         DevDebug.LogEnemyHealth($"{gameObject.name}: {previous} -> {currentHealth} (-{amount})");
+        
+        Debug.Log($"[EnemyAI] ReceiveDamage called. level={damage.damageLevel} amount={amount} sender={damage.sender?.name ?? "null"}", this);
+        
         PlayDamageReaction(damage.sender?.transform, damage.damageLevel, targetIsDead);
 
         if (targetIsDead)
@@ -126,12 +129,19 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
 
     private void PlayDamageReaction(Transform attacker, DamageMessage.DamageLevel level, bool isDead)
     {
-        if (animator == null) return;
+        if (animator == null)
+        {
+            Debug.LogWarning($"[EnemyAI] PlayDamageReaction called but animator is null", this);
+            return;
+        }
+
+        Debug.Log($"[EnemyAI] PlayDamageReaction: level={level} ({(int)level}) attacker={attacker?.name ?? "null"} isDead={isDead}", this);
 
         if (attacker == null)
         {
             animator.SetInteger("damageLevel", (int)level);
             animator.SetTrigger("Damage");
+            Debug.Log($"[EnemyAI] Set Damage trigger (no attacker). damageLevel={(int)level}", this);
             return;
         }
 
@@ -143,14 +153,18 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
         }
 
         float damageAngle = Vector3.SignedAngle(transform.forward, damageDirection, transform.up);
-        animator.SetFloat("damageDirection", (damageAngle / 180f) * 0.5f + 0.5f);
+        float normalizedAngle = (damageAngle / 180f) * 0.5f + 0.5f;
+        animator.SetFloat("damageDirection", normalizedAngle);
         animator.SetInteger("damageLevel", (int)level);
         animator.SetTrigger("Damage");
+        
+        Debug.Log($"[EnemyAI] Set Damage trigger. damageLevel={(int)level} damageDirection={normalizedAngle:F2} (angle={damageAngle:F1}°)", this);
 
         if (isDead)
         {
             animator.ResetTrigger("Damage");
             animator.SetTrigger("Die");
+            Debug.Log($"[EnemyAI] Set Die trigger", this);
         }
     }
 

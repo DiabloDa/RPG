@@ -15,6 +15,38 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
     private AttackController _attackController;
     private Transform _senderRoot;
 
+    private bool TryResolveAttackController()
+    {
+        if (_attackController != null)
+        {
+            return true;
+        }
+
+        _attackController = GetComponentInParent<AttackController>(true);
+        if (_attackController != null)
+        {
+            return true;
+        }
+
+        // Fallback: try from sender/root wiring for cases where hitboxes are not under controller hierarchy.
+        GameObject senderGo = damageMessage.sender;
+        if (senderGo == null && _senderRoot != null)
+        {
+            senderGo = _senderRoot.gameObject;
+        }
+
+        if (senderGo != null)
+        {
+            _attackController = senderGo.GetComponentInParent<AttackController>();
+            if (_attackController == null)
+            {
+                _attackController = senderGo.GetComponentInChildren<AttackController>(true);
+            }
+        }
+
+        return _attackController != null;
+    }
+
     // tracks last hit time per target root to avoid continuous frame-by-frame hits
     private System.Collections.Generic.Dictionary<Transform, float> _lastHitTimes = new System.Collections.Generic.Dictionary<Transform, float>();
 
@@ -82,10 +114,17 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
         }
 
         // Auto-fill sender so DamageController can calculate direction and self-hit filtering works.
-        _senderRoot = _attackController != null ? _attackController.transform.root : transform.root;
+        if (damageMessage.sender != null)
+        {
+            _senderRoot = damageMessage.sender.transform.root;
+        }
+        else
+        {
+            _senderRoot = _attackController != null ? _attackController.transform.root : transform.root;
+        }
         damageMessage.sender = _senderRoot.gameObject;
 
-        if (_attackController != null)
+        if (TryResolveAttackController())
         {
             damageMessage.damageLevel = _attackController.CurrentDamageLevel;
         }
@@ -128,6 +167,8 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
 
     private void ProcessTrigger(Collider other)
     {
+        TryResolveAttackController();
+
         if (other == null || other.transform == null)
         {
             if (debugDamage)
@@ -147,27 +188,37 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
             return;
         }
 
-        // Only apply damage/feedback during an actual attack window when an AttackController exists.
-        // If requireAttackControllerWindow is true but no AttackController is present, allow hits
-        // so simple melee enemies without an AttackController still deal damage.
-        if (requireAttackControllerWindow)
+        // If this hitbox is bound to an AttackController, only allow damage during its attack window.
+        // This prevents charge/windup phases from dealing damage when colliders overlap.
+        if (_attackController != null && !_attackController.IsAttacking)
         {
-            if (_attackController == null)
+            if (debugDamage)
             {
-                if (debugDamage)
-                {
-                    Debug.Log($"[AttackHitBox] requireAttackControllerWindow=true but no AttackController found on '{name}'. Allowing hit.", this);
-                }
-                // allow hit if no controller exists
+                Debug.Log($"[AttackHitBox] Ignored hit on '{name}' because AttackController not in attack window (IsAttacking=false)", this);
             }
-            else if (!_attackController.IsAttacking)
+            return;
+        }
+
+        // Also check that we're in the damage window (minimum delay from attack start).
+        if (_attackController != null && !_attackController.IsCurrentlyInDamageWindow())
+        {
+            float elapsed = _attackController.GetTimeSinceAttackStart();
+            float minDelay = _attackController.GetMinDamageDelay();
+            if (debugDamage)
             {
-                if (debugDamage)
-                {
-                    Debug.Log($"[AttackHitBox] Ignored hit on '{name}' because AttackController not in attack window (IsAttacking=false)", this);
-                }
-                return;
+                Debug.Log($"[AttackHitBox] Ignored hit on '{name}' because not in damage window yet (elapsed={elapsed:F3}s, required={minDelay}s)", this);
             }
+            return;
+        }
+
+        // If a window is required but no controller exists, fail closed to avoid instant/always-on hits.
+        if (_attackController == null && requireAttackControllerWindow)
+        {
+            if (debugDamage)
+            {
+                Debug.Log($"[AttackHitBox] Blocked hit on '{name}' because requireAttackControllerWindow=true and no AttackController was found (TryResolveAttackController failed).", this);
+            }
+            return;
         }
 
         if (debugDamage)
@@ -264,7 +315,7 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
     public void SendDamage(IdamageReceiver<DamageMessage> receiver)
     {
         var outgoingDamage = damageMessage;
-        if (_attackController != null)
+        if (TryResolveAttackController())
         {
             outgoingDamage.damageLevel = _attackController.CurrentDamageLevel;
         }
@@ -288,7 +339,7 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
         outgoingDamage.amount = GetDamageAmountForLevel(outgoingDamage.amount, outgoingDamage.damageLevel);
         
         // Debug: log exact damage being sent to identify multiplier application
-        DevDebug.LogPlayerHealth($"[SendDamage] Sending damage: amount={outgoingDamage.amount} level={outgoingDamage.damageLevel} to {(targetRoot != null ? targetRoot.name : "unknown")}");
+        DevDebug.LogPlayerHealth($"[SendDamage] Sending damage: amount={outgoingDamage.amount} level={outgoingDamage.damageLevel} to {(targetRoot != null ? targetRoot.name : "unknown")} controller={(_attackController != null ? _attackController.name : "NONE")}");
         
         receiver.ReceiveDamage(outgoingDamage);
 
