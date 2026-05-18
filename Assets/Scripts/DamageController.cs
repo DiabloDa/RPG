@@ -76,6 +76,12 @@ public class DamageController : MonoBehaviour
     }
     private void Update()
     {
+        if (Game.Instance != null && Game.Instance.PlayerOne != null && Game.Instance.PlayerOne.IsInvulnerable)
+        {
+            damageList.Clear();
+            return;
+        }
+
         Vector3 damageDirection = Vector3.zero;
         int damageLevel = 0;
         bool isDead = false;

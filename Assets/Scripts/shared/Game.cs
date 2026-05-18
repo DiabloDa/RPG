@@ -31,20 +31,49 @@ public class Game : MonoBehaviour
     }
 
 
-    private CharacterState playerOne;
-    public CharacterState PlayerOne => playerOne;
+    private CharacterState playerOneCharacter;
+    private CharacterStateCombatAdapter playerOneAdapter;
+    private PlayerCombatFacade playerOneFacade;
+    private PlayerPowerUpController playerPowerUps;
+
+    public IPlayerCombat PlayerOne => playerOneFacade;
+    public PlayerPowerUpController PlayerPowerUps => playerPowerUps;
 
 
     private void Awake()
     {
         CreatePlayer();
+        CreatePowerUpSystem();
     }
 
     private void CreatePlayer()
     {
+        if (playerOneFacade != null)
+        {
+            return;
+        }
+
         GameObject playerGo = new GameObject("[Player 1]");
-        playerOne = playerGo.AddComponent<CharacterState>();    
+        playerOneCharacter = playerGo.AddComponent<CharacterState>();
+        playerOneAdapter = new CharacterStateCombatAdapter(playerOneCharacter);
+        playerOneFacade = new PlayerCombatFacade(playerOneAdapter);
         DontDestroyOnLoad(playerGo);
+    }
+
+    private void CreatePowerUpSystem()
+    {
+        if (playerPowerUps != null)
+        {
+            return;
+        }
+
+        playerPowerUps = GetComponent<PlayerPowerUpController>();
+        if (playerPowerUps == null)
+        {
+            playerPowerUps = gameObject.AddComponent<PlayerPowerUpController>();
+        }
+
+        playerPowerUps.Initialize(playerOneFacade, playerOneAdapter);
 
     }
 

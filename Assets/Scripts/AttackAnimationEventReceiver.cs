@@ -58,12 +58,28 @@ public class AttackAnimationEventReceiver : MonoBehaviour
     // Provide overloads/aliases so changes to clips/controllers don't silently break hitbox windows.
     public void ToggleAttackHitBox()
     {
-        ResolveController()?.ToggleAttackHitBox(-1);
+        var ctrl = ResolveController();
+        if (ctrl == null)
+        {
+            Debug.LogWarning($"[AttackAnimationEventReceiver] ToggleAttackHitBox() called on '{gameObject.name}' but no AttackController found to forward to.", this);
+            return;
+        }
+
+        Debug.Log($"[AttackAnimationEventReceiver] ToggleAttackHitBox() called on '{gameObject.name}' -> forwarding to controller '{ctrl.gameObject.name}'", this);
+        ctrl.ToggleAttackHitBox(-1);
     }
 
     public void ToggleAttackHitBox(int hitboxId)
     {
-        ResolveController()?.ToggleAttackHitBox(hitboxId);
+        var ctrl = ResolveController();
+        if (ctrl == null)
+        {
+            Debug.LogWarning($"[AttackAnimationEventReceiver] ToggleAttackHitBox({hitboxId}) called on '{gameObject.name}' but no AttackController found to forward to.", this);
+            return;
+        }
+
+        Debug.Log($"[AttackAnimationEventReceiver] ToggleAttackHitBox({hitboxId}) called on '{gameObject.name}' -> forwarding to controller '{ctrl.gameObject.name}'", this);
+        ctrl.ToggleAttackHitBox(hitboxId);
     }
 
     public void toggleAttackHitBox()
@@ -95,5 +111,31 @@ public class AttackAnimationEventReceiver : MonoBehaviour
     public void CleanupAttackHitBox()
     {
         ResolveController()?.CleanupAttackHitBox();
+    }
+
+    // --- Damage I-frames (some animation clips use these events) ---
+    public void IframeStart()
+    {
+        // Try to forward to a DamageController if present on this object or parents
+        var dc = GetComponentInParent<DamageController>();
+        if (dc != null)
+        {
+            dc.IframeStart();
+            return;
+        }
+
+        Debug.LogWarning($"[AttackAnimationEventReceiver] IframeStart called but no DamageController found on '{gameObject.name}' or parents.", this);
+    }
+
+    public void IframeEnd()
+    {
+        var dc = GetComponentInParent<DamageController>();
+        if (dc != null)
+        {
+            dc.IframeEnd();
+            return;
+        }
+
+        Debug.LogWarning($"[AttackAnimationEventReceiver] IframeEnd called but no DamageController found on '{gameObject.name}' or parents.", this);
     }
 }

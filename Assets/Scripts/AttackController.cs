@@ -18,7 +18,7 @@ public class AttackController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float lightChargeFallbackSeconds = 0.18f;
 
     [Header("Camera Feedback (timing)")]
-    [Tooltip("Minimum time after the attack starts before the strike shake is allowed to fire. Helps when AnimationEvents are at time 0 or combos re-trigger quickly.")]
+    [Tooltip("Minimum time after the attack starts before the strike shake and hitbox window are allowed to fire. Helps when AnimationEvents are at time 0 or combos re-trigger quickly.")]
     [SerializeField, Min(0f)] private float lightStrikeShakeMinDelaySeconds = 0.06f;
     [SerializeField, Min(0f)] private float heavyStrikeShakeMinDelaySeconds = 0.12f;
 
@@ -48,6 +48,7 @@ public class AttackController : MonoBehaviour
 
     private float _attackStartedAt;
     private bool _strikeShakeScheduled;
+    private Coroutine _pendingHitboxOpenRoutine;
 
     [SerializeField] private float lightCost = 15f;
     [SerializeField] private float heavyCost = 35f;
@@ -79,6 +80,20 @@ public class AttackController : MonoBehaviour
     private Transform _attackRotationRoot;
     private Quaternion _attackTargetRotation;
     private bool _hasAttackTargetRotation;
+
+    [Header("Debug/Compatibility")]
+    [Tooltip("If true, the controller will auto-toggle hitboxes at a timed strike window when AnimationEvents are missing. Useful for testing or clips without events.")]
+    [SerializeField] private bool autoStrikeIfNoEvent = true;
+    [SerializeField, Min(0f)] private float autoStrikeDelayLight = 0.12f;
+    [SerializeField, Min(0f)] private float autoStrikeWindowLight = 0.08f;
+    [Tooltip("Heavy strike impact timing in seconds after the attack starts. Set this to the moment the weapon actually lands, after the windup finishes.")]
+    [SerializeField, Min(0f)] private float autoStrikeDelayHeavy = 0.42f;
+    [SerializeField, Min(0f)] private float autoStrikeWindowHeavy = 0.14f;
+    [Header("Aggressive Strike (fallback)")]
+    [Tooltip("If true, perform an aggressive OverlapSphere strike at the attack origin to catch enemies even if hitboxes miss.")]
+    [SerializeField] private bool aggressiveOverlapStrike = true;
+    [SerializeField, Min(0f)] private float aggressiveRadius = 1.2f;
+    [SerializeField] private Vector3 aggressiveOffset = new Vector3(0f, 0.9f, 1.0f);
 
     public bool IsAttackDirectionLocked => _attackDirectionLocked;
 
@@ -633,6 +648,10 @@ public class AttackController : MonoBehaviour
         Invoke(nameof(ForceStopAttacking), attackFailsafeSeconds);
 
         animator.SetTrigger("Attack");
+        if (autoStrikeIfNoEvent && hitBoxController != null)
+        {
+            StartCoroutine(AutoStrikeWindowRoutine(autoStrikeDelayLight, autoStrikeWindowLight));
+        }
         return true;
     }
 
@@ -678,6 +697,10 @@ public class AttackController : MonoBehaviour
         Invoke(nameof(ForceStopAttacking), attackFailsafeSeconds);
 
         animator.SetTrigger("HeavyAttack");
+        if (autoStrikeIfNoEvent && hitBoxController != null)
+        {
+            StartCoroutine(AutoStrikeWindowRoutine(autoStrikeDelayHeavy, autoStrikeWindowHeavy));
+        }
         return true;
     }
 
@@ -685,8 +708,10 @@ public class AttackController : MonoBehaviour
     {
         if (!context.performed)
         {
+            Debug.Log($"[AttackController] OnlightAttack received but not performed (phase={context.phase})", this);
             return;
         }
+        Debug.Log($"[AttackController] OnlightAttack performed on '{gameObject.name}' (IsAttacking={IsAttacking})", this);
 
         Vector2 dir = ResolveAttackBlendDirection();
 
@@ -862,10 +887,19 @@ public class AttackController : MonoBehaviour
 
     public void ToggleAttackHitBox(int hitboxId)
     {
-        if (hitBoxController != null)
+        Debug.Log($"[AttackController] ToggleAttackHitBox called id={hitboxId} on '{gameObject.name}' (hasHitBoxController={(hitBoxController!=null)})", this);
+        if (_strikeShakeArmed)
         {
-            hitBoxController.TogglHitBoxes(hitboxId);
+            float minDelay = GetStrikeWindowMinDelaySeconds();
+            float elapsed = Time.time - _attackStartedAt;
+            if (elapsed < minDelay)
+            {
+                StartPendingHitboxOpen(hitboxId, minDelay - elapsed);
+                return;
+            }
         }
+
+        TryOpenAttackHitBox(hitboxId);
 
         // Strike moment: fire exactly one shake per attack (synced to animation hitbox window).
         if (_strikeShakeArmed)
@@ -897,6 +931,8 @@ public class AttackController : MonoBehaviour
         UnlockAttackDirection();
         RestoreAttackRootMotionOverride();
 
+        CancelPendingHitboxOpen();
+
         CancelInvoke(nameof(ForceStopAttacking));
         CancelInvoke(nameof(EndLightChargeFallback));
         CancelInvoke(nameof(BeginHeavyChargeDelayed));
@@ -917,6 +953,10 @@ public class AttackController : MonoBehaviour
         }
 
         hitBoxController.cleanupHitBoxes();
+        
+        // Clear the per-window hit registry so the next attack can hit the same targets.
+        AttackHitBox.ClearWindowHits();
+
         TryConsumeBufferedAttack();
     }
 
@@ -930,6 +970,7 @@ public class AttackController : MonoBehaviour
         IsAttacking = false;
         UnlockAttackDirection();
         RestoreAttackRootMotionOverride();
+        CancelPendingHitboxOpen();
 
         CancelInvoke(nameof(EndLightChargeFallback));
         CancelInvoke(nameof(BeginHeavyChargeDelayed));
@@ -948,6 +989,285 @@ public class AttackController : MonoBehaviour
 
         _strikeShakeArmed = false;
         TryConsumeBufferedAttack();
+    }
+
+    private System.Collections.IEnumerator AutoStrikeWindowRoutine(float delay, float window)
+    {
+        // Wait until strike moment
+        yield return new WaitForSeconds(delay);
+
+        if (hitBoxController != null)
+        {
+            // Activate hitboxes explicitly so the strike window stays aligned with the impact frame.
+            hitBoxController.SetHitBoxesActive(-1, true);
+            // Also perform direct damage fallback to catch collisions if physics misses
+            DirectDamageFromHitboxes();
+            if (aggressiveOverlapStrike)
+            {
+                AggressiveOverlapStrike();
+            }
+        }
+
+        yield return new WaitForSeconds(window);
+
+        if (hitBoxController != null)
+        {
+            // Deactivate hitboxes
+            hitBoxController.cleanupHitBoxes();
+        }
+    }
+
+    private float GetStrikeWindowMinDelaySeconds()
+    {
+        return _armedStrikeShakeLevel == DamageMessage.DamageLevel.Big
+            ? Mathf.Max(heavyStrikeShakeMinDelaySeconds, autoStrikeDelayHeavy)
+            : lightStrikeShakeMinDelaySeconds;
+    }
+
+    private void TryOpenAttackHitBox(int hitboxId)
+    {
+        if (hitBoxController == null)
+        {
+            return;
+        }
+
+        ApplyAttackHitBoxOpen(hitboxId);
+    }
+
+    private void StartPendingHitboxOpen(int hitboxId, float delaySeconds)
+    {
+        CancelPendingHitboxOpen();
+
+        if (delaySeconds <= 0f)
+        {
+            ApplyAttackHitBoxOpen(hitboxId);
+            return;
+        }
+
+        _pendingHitboxOpenRoutine = StartCoroutine(DelayedHitboxOpenRoutine(hitboxId, delaySeconds));
+    }
+
+    private System.Collections.IEnumerator DelayedHitboxOpenRoutine(int hitboxId, float delaySeconds)
+    {
+        yield return new WaitForSeconds(delaySeconds);
+        _pendingHitboxOpenRoutine = null;
+
+        if (!IsAttacking || hitBoxController == null)
+        {
+            yield break;
+        }
+
+        ApplyAttackHitBoxOpen(hitboxId);
+    }
+
+    private void ApplyAttackHitBoxOpen(int hitboxId)
+    {
+        if (hitBoxController != null)
+        {
+            hitBoxController.SetHitBoxesActive(hitboxId, true);
+        }
+    }
+
+    private void CancelPendingHitboxOpen()
+    {
+        if (_pendingHitboxOpenRoutine != null)
+        {
+            StopCoroutine(_pendingHitboxOpenRoutine);
+            _pendingHitboxOpenRoutine = null;
+        }
+    }
+
+    // Fallback: perform a manual intersection test against all colliders in scene
+    // and directly send damage to any IdamageReceiver found. This ignores physics layer
+    // collision rules and is meant as a compatibility/testing fallback.
+    private void DirectDamageFromHitboxes()
+    {
+        if (hitBoxController == null) return;
+
+        var hitBoxes = hitBoxController.HitBoxes;
+        if (hitBoxes == null || hitBoxes.Length == 0) return;
+
+        // Gather all colliders once
+        var allColliders = FindObjectsOfType<Collider>();
+
+        foreach (var hb in hitBoxes)
+        {
+            if (hb == null) continue;
+            var col = hb.GetComponent<Collider>() ?? hb.GetComponentInChildren<Collider>();
+            if (col == null) continue;
+
+            Bounds b = col.bounds;
+
+            foreach (var c in allColliders)
+            {
+                if (c == null || c.transform == null) continue;
+                // skip self-root
+                if (c.transform.root == transform.root) continue;
+
+                if (b.Intersects(c.bounds))
+                {
+                    // try to find a receiver on the collider or its parents
+                    IdamageReceiver<DamageMessage> receiver = null;
+                    var behaviours = c.GetComponents<MonoBehaviour>();
+                    for (int i = 0; i < behaviours.Length; i++)
+                    {
+                        if (behaviours[i] is IdamageReceiver<DamageMessage> r)
+                        {
+                            receiver = r;
+                            break;
+                        }
+                    }
+
+                    if (receiver == null)
+                    {
+                        var parentBehaviours = c.GetComponentsInParent<MonoBehaviour>();
+                        for (int i = 0; i < parentBehaviours.Length; i++)
+                        {
+                            if (parentBehaviours[i] is IdamageReceiver<DamageMessage> r)
+                            {
+                                receiver = r;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (receiver != null)
+                    {
+                        DamageMessage dmg = new DamageMessage();
+                        var ahb = hb.GetComponent<AttackHitBox>();
+                        float baseAmount = 10f;
+                        if (ahb != null)
+                        {
+                            baseAmount = ahb.GetBaseDamage();
+                            dmg.damageLevel = ahb.GetDefaultDamageLevel();
+                        }
+                        else
+                        {
+                            dmg.damageLevel = CurrentDamageLevel;
+                        }
+
+                        // Apply multiplier based on damage level
+                        float multiplier = dmg.damageLevel switch
+                        {
+                            DamageMessage.DamageLevel.Medium => 1.5f,
+                            DamageMessage.DamageLevel.Big => 2f,
+                            _ => 1f,
+                        };
+
+                        dmg.amount = baseAmount * multiplier;
+                        dmg.sender = transform.root.gameObject;
+
+                        try
+                        {
+                            // Use AttackHitBox window registry to avoid duplicate delivery within this attack window.
+                            Transform targetRoot = c.transform.root;
+                            if (AttackHitBox.TryRegisterWindowHit(targetRoot))
+                            {
+                                receiver.ReceiveDamage(dmg);
+                                Debug.Log($"[AttackController] DirectDamage sent to {c.gameObject.name} amount={dmg.amount} level={dmg.damageLevel}", this);
+                            }
+                            else
+                            {
+                                if (Debug.isDebugBuild)
+                                {
+                                    Debug.Log($"[AttackController] Skipping DirectDamage to {c.gameObject.name} due to window registry", this);
+                                }
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            Debug.LogWarning($"[AttackController] DirectDamage failed: {ex}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void AggressiveOverlapStrike()
+    {
+        // Determine origin in world space: relative to this controller's transform
+        Vector3 origin = transform.TransformPoint(aggressiveOffset);
+
+        Collider[] hits = Physics.OverlapSphere(origin, aggressiveRadius);
+        if (hits == null || hits.Length == 0)
+        {
+            Debug.Log($"[AttackController] AggressiveOverlapStrike found no colliders at {origin} radius={aggressiveRadius}", this);
+            return;
+        }
+
+        foreach (var c in hits)
+        {
+            if (c == null || c.transform == null) continue;
+            // Skip self
+            if (c.transform.root == transform.root) continue;
+
+            IdamageReceiver<DamageMessage> receiver = null;
+            var behaviours = c.GetComponents<MonoBehaviour>();
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                if (behaviours[i] is IdamageReceiver<DamageMessage> r)
+                {
+                    receiver = r;
+                    break;
+                }
+            }
+
+            if (receiver == null)
+            {
+                var parentBehaviours = c.GetComponentsInParent<MonoBehaviour>();
+                for (int i = 0; i < parentBehaviours.Length; i++)
+                {
+                    if (parentBehaviours[i] is IdamageReceiver<DamageMessage> r)
+                    {
+                        receiver = r;
+                        break;
+                    }
+                }
+            }
+
+            if (receiver != null)
+            {
+                // Build damage message using any hitbox on the controller if available
+                DamageMessage dmg = new DamageMessage();
+                float baseAmount = 10f;
+                DamageMessage.DamageLevel level = CurrentDamageLevel;
+                if (hitBoxController != null && hitBoxController.HitBoxes != null && hitBoxController.HitBoxes.Length > 0)
+                {
+                    var hb = hitBoxController.HitBoxes[0];
+                    if (hb != null)
+                    {
+                        var ahb = hb.GetComponent<AttackHitBox>();
+                        if (ahb != null)
+                        {
+                            baseAmount = ahb.GetBaseDamage();
+                            level = ahb.GetDefaultDamageLevel();
+                        }
+                    }
+                }
+
+                float multiplier = level switch
+                {
+                    DamageMessage.DamageLevel.Medium => 1.5f,
+                    DamageMessage.DamageLevel.Big => 2f,
+                    _ => 1f,
+                };
+
+                dmg.amount = baseAmount * multiplier;
+                dmg.damageLevel = level;
+                dmg.sender = transform.root.gameObject;
+
+                try
+                {
+                    receiver.ReceiveDamage(dmg);
+                    Debug.Log($"[AttackController] AggressiveOverlapStrike sent damage to {c.gameObject.name} amount={dmg.amount} level={dmg.damageLevel}", this);
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[AttackController] AggressiveOverlapStrike failed: {ex}");
+                }
+            }
+        }
     }
 
     private void EndLightChargeFallback()

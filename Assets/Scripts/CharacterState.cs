@@ -78,7 +78,7 @@ public class CharacterState : MonoBehaviour
         _currentHealth = Mathf.Max(0f, _currentHealth - healthDepletion);
         zeroHealth = false;
 
-        Debug.Log($"[Health] {gameObject.name}: {previousHealth} -> {_currentHealth} (-{healthDepletion})");
+        DevDebug.LogPlayerHealth($"{gameObject.name}: {previousHealth} -> {_currentHealth} (-{healthDepletion})");
 
         if (_currentHealth <= 0f)
         {

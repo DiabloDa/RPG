@@ -1,4 +1,4 @@
-/*using UnityEngine;
+using UnityEngine;
 
 public class EnemyMeleeAttack : MonoBehaviour
 {
@@ -6,7 +6,7 @@ public class EnemyMeleeAttack : MonoBehaviour
     [SerializeField] private float damage = 6f;
     [SerializeField, Min(0.05f)] private float attackRange = 0.9f;
     [SerializeField] private float attackCooldown = 0.25f;
-    [SerializeField, Min(0f)] private float pauseAfterHitSeconds = 2.5f;
+    [SerializeField, Min(0f)] private float pauseAfterHitSeconds = 0.2f;
     [SerializeField] private DamageMessage.DamageLevel damageLevel = DamageMessage.DamageLevel.Small;
 
     [Header("Attack Animation (optional)")]
@@ -14,7 +14,7 @@ public class EnemyMeleeAttack : MonoBehaviour
     [SerializeField] private string attackTriggerParam = "Attack";
     [Tooltip("Animator state name to wait for. If it doesn't match, we fall back to pauseAfterHitSeconds.")]
     [SerializeField] private string attackStateName = "Zombie Attack";
-    [SerializeField, Min(0f)] private float attackAnimFallbackSeconds = 0.9f;
+    [SerializeField, Min(0f)] private float attackAnimFallbackSeconds = 0.5f;
 
     [Header("Targeting")]
     [SerializeField] private LayerMask hitMask = ~0;
@@ -83,16 +83,35 @@ public class EnemyMeleeAttack : MonoBehaviour
             // block repeated hits; for now we want reliable periodic damage while the enemy is in range.
             if (Game.Instance != null && Game.Instance.PlayerOne != null)
             {
+                if (Game.Instance.PlayerOne.IsInvulnerable)
+                {
+                    ApplyPostHitPause();
+                    float blockedLockout = Mathf.Max(attackCooldown, pauseAfterHitSeconds, attackAnimFallbackSeconds);
+                    nextAttackTime = Time.time + Mathf.Max(0.05f, blockedLockout);
+                    return;
+                }
+
                 Game.Instance.PlayerOne.DepleteHealth(damage, out bool isDead);
 
-                // Still play the damage reaction animation (without relying on DamageController for health).
-                Transform root = col.transform.root;
-                if (root != null)
+                // Try to notify any damage receiver on the hit collider (preferred), so iFrames
+                // and proper hit reactions defined by the player's DamageController are used.
+                var receiver = FindDamageReceiver(col);
+                if (receiver != null)
                 {
-                    var damageController = root.GetComponentInChildren<DamageController>(true);
-                    if (damageController != null)
+                    var msg = new DamageMessage() { sender = transform.root != null ? transform.root.gameObject : gameObject, amount = damage, damageLevel = damageLevel };
+                    receiver.ReceiveDamage(msg);
+                }
+                else
+                {
+                    // Still play the damage reaction animation if a DamageController exists somewhere under the hit root.
+                    Transform root = col.transform.root;
+                    if (root != null)
                     {
-                        damageController.PlayDamageReaction(transform.root, damageLevel, isDead);
+                        var damageController = root.GetComponentInChildren<DamageController>(true);
+                        if (damageController != null)
+                        {
+                            damageController.PlayDamageReaction(transform.root, damageLevel, isDead);
+                        }
                     }
                 }
 
@@ -276,4 +295,3 @@ public class EnemyMeleeAttack : MonoBehaviour
         Gizmos.DrawWireSphere(origin, attackRange);
     }
 }
-*/
