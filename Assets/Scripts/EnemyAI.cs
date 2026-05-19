@@ -61,12 +61,22 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
     private float _pauseUntil;
     private bool _wasPaused;
 
+    private bool IsAgentUsable()
+    {
+        return agent != null && agent.enabled && agent.isOnNavMesh;
+    }
+
+    public bool CanUseNavMeshAgent()
+    {
+        return IsAgentUsable();
+    }
+
     public void PauseForSeconds(float seconds)
     {
         if (seconds <= 0f) return;
         _pauseUntil = Mathf.Max(_pauseUntil, Time.time + seconds);
 
-        if (agent != null)
+        if (IsAgentUsable())
         {
             agent.isStopped = true;
             agent.ResetPath();
@@ -78,7 +88,7 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
         _pauseUntil = 0f;
         _wasPaused = false;
 
-        if (agent != null)
+        if (IsAgentUsable())
         {
             agent.isStopped = false;
         }
@@ -106,6 +116,10 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
     {
         if (isDead) return;
         float amount = Mathf.Max(0f, damage.amount);
+        if (damage.sender != null && DamageBoostRuntime.CurrentMultiplier > 1f)
+        {
+            amount *= DamageBoostRuntime.CurrentMultiplier;
+        }
         float previous = currentHealth;
         currentHealth = Mathf.Max(0f, currentHealth - amount);
 
@@ -198,7 +212,7 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
             }
             catch { }
         }
-        if (agent != null)
+        if (IsAgentUsable())
         {
             agent.isStopped = true;
             agent.ResetPath();
@@ -673,6 +687,7 @@ public class EnemyAI : MonoBehaviour, IdamageReceiver<DamageMessage>
     public void NextWaypoint()
     {
         if(waypoints == null || waypoints.Length == 0) return;
+        if (!IsAgentUsable()) return;
         waypointIndex = (waypointIndex+1) % waypoints.Length;
         agent.SetDestination(waypoints[waypointIndex].position);
     }

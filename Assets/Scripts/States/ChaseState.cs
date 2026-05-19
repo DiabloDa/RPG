@@ -17,7 +17,7 @@ public class ChaseState : State
         _useFallbackDirect = false;
         _directChase = null;
 
-        if (enemy.agent != null)
+        if (enemy.CanUseNavMeshAgent())
         {
             enemy.agent.isStopped = false;
             enemy.agent.speed = enemy.runSpeed;
@@ -52,7 +52,7 @@ public class ChaseState : State
             {
                 // No path on NavMesh: switch to direct chase.
                 _useFallbackDirect = true;
-                if (enemy.agent != null)
+                if (enemy.CanUseNavMeshAgent())
                 {
                     enemy.agent.isStopped = true;
                     enemy.agent.ResetPath();

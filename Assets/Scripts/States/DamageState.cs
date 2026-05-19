@@ -14,7 +14,7 @@ public class DamageState : State
     {
         Debug.Log($"[DamageState] Entered. Duration={_durationSeconds}s for {enemy.gameObject.name}", enemy);
         
-        if (enemy.agent != null)
+        if (enemy.CanUseNavMeshAgent())
         {
             enemy.agent.isStopped = true;
             enemy.agent.ResetPath();
@@ -50,7 +50,7 @@ public class DamageState : State
 
     public override void Exit()
     {
-        if (enemy.agent != null)
+        if (enemy.CanUseNavMeshAgent())
         {
             enemy.agent.isStopped = false;
         }

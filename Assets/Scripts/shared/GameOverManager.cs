@@ -1,13 +1,25 @@
 using Clases.Clase_2.Scripts;
 using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.SceneManagement;
 
 public class GameOverManager : MonoBehaviour
 {
+    [SerializeField] private GameObject gameOverPanel;
+    [SerializeField] private PlayableDirector deathCinematic;
     [SerializeField] private bool autoDisablePlayerControllers = true;
     [SerializeField] private bool autoDisableEnemySpawners = true;
     [SerializeField] private bool autoStopEnemies = true;
 
     private bool gameOverTriggered;
+
+    private void Awake()
+    {
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(false);
+        }
+    }
 
     private void OnEnable()
     {
@@ -51,6 +63,17 @@ public class GameOverManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
+        if (deathCinematic != null)
+        {
+            deathCinematic.time = 0f;
+            deathCinematic.Play();
+        }
+
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(true);
+        }
+
         if (autoDisableEnemySpawners)
         {
             foreach (var spawner in FindObjectsByType<EnemyWaveSpawner>(FindObjectsSortMode.None))
@@ -63,7 +86,7 @@ public class GameOverManager : MonoBehaviour
         {
             foreach (var enemy in FindObjectsByType<EnemyAI>(FindObjectsSortMode.None))
             {
-                if (enemy.agent != null)
+                if (enemy.CanUseNavMeshAgent())
                 {
                     enemy.agent.isStopped = true;
                 }
@@ -82,5 +105,16 @@ public class GameOverManager : MonoBehaviour
             var look = FindFirstObjectByType<CharacterLook>();
             if (look != null) look.enabled = false;
         }
+    }
+
+    public void RestartGame()
+    {
+        if (Game.Instance != null)
+        {
+            Game.Instance.ResetRun();
+        }
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 }

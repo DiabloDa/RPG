@@ -8,15 +8,19 @@ public class PlayerPowerUpController : MonoBehaviour
     private DamageMultiplierDecorator damageDecorator;
     private PowerUpFeedbackUI feedbackUI;
 
+    // Global outgoing damage multiplier used by attack damage sources.
+    public static float OutgoingDamageMultiplier { get; private set; } = 1f;
+
     private void Awake()
     {
-        feedbackUI = GetComponent<PowerUpFeedbackUI>();
+        ResolveFeedbackUI();
     }
 
     public void Initialize(PlayerCombatFacade facade, CharacterStateCombatAdapter basePlayer)
     {
         playerFacade = facade;
         this.basePlayer = basePlayer;
+        ResolveFeedbackUI();
 
         // Do not create the feedback UI automatically. If you add a PowerUpFeedbackUI
         // component manually in the scene (e.g. on the Game object), it will be used.
@@ -29,6 +33,11 @@ public class PlayerPowerUpController : MonoBehaviour
 
     private void Update()
     {
+        if (feedbackUI == null)
+        {
+            ResolveFeedbackUI();
+        }
+
         bool changed = false;
 
         // invulnerability lifecycle
@@ -48,6 +57,9 @@ public class PlayerPowerUpController : MonoBehaviour
         if (changed)
         {
             RebuildCombatChain();
+            OutgoingDamageMultiplier = damageDecorator != null && damageDecorator.IsActive
+                ? damageDecorator.Multiplier
+                : 1f;
         }
 
         if (feedbackUI != null && invulnerabilityDecorator != null)
@@ -93,11 +105,31 @@ public class PlayerPowerUpController : MonoBehaviour
         }
 
         RebuildCombatChain();
+        OutgoingDamageMultiplier = multiplier;
+        DamageBoostRuntime.Activate(multiplier, durationSeconds);
     }
 
     public void ApplyDoubleDamage(float durationSeconds)
     {
         ApplyDamageMultiplier(durationSeconds, 2f);
+    }
+
+    public void ResetPowerUps()
+    {
+        invulnerabilityDecorator = null;
+        damageDecorator = null;
+        OutgoingDamageMultiplier = 1f;
+        DamageBoostRuntime.Reset();
+
+        if (playerFacade != null && basePlayer != null)
+        {
+            playerFacade.SetCurrent(basePlayer);
+        }
+
+        if (feedbackUI != null)
+        {
+            feedbackUI.SetInvulnerabilityActive(false, 0f);
+        }
     }
 
     private void EndInvulnerability()
@@ -151,6 +183,18 @@ public class PlayerPowerUpController : MonoBehaviour
         }
     }
 
+    public float CurrentOutgoingDamageMultiplier => OutgoingDamageMultiplier;
+
+    public static void SetOutgoingDamageMultiplier(float multiplier)
+    {
+        OutgoingDamageMultiplier = Mathf.Max(0f, multiplier);
+    }
+
+    public static void ResetOutgoingDamageMultiplier()
+    {
+        OutgoingDamageMultiplier = 1f;
+    }
+
     private void RebuildCombatChain()
     {
         if (playerFacade == null || basePlayer == null)
@@ -176,5 +220,21 @@ public class PlayerPowerUpController : MonoBehaviour
         }
 
         playerFacade.SetCurrent(inner);
+    }
+
+    private void ResolveFeedbackUI()
+    {
+        if (feedbackUI != null)
+        {
+            return;
+        }
+
+        feedbackUI = GetComponent<PowerUpFeedbackUI>();
+        if (feedbackUI != null)
+        {
+            return;
+        }
+
+        feedbackUI = FindFirstObjectByType<PowerUpFeedbackUI>(FindObjectsInactive.Include);
     }
 }

@@ -26,6 +26,13 @@ public class CharacterState : MonoBehaviour
         _hasDied = _currentHealth <= 0f;
     }
 
+    public void ResetState()
+    {
+        _currentStamina = _startStamina;
+        _currentHealth = _startHealth;
+        _hasDied = false;
+    }
+
     private void Update()
     {
         RegenerateStamina(_staminaRegen * Time.deltaTime);

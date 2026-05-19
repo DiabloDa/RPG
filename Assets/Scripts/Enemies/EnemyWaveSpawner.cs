@@ -1,6 +1,6 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
+using System;
 using Clases.Clase_2.Scripts;
 using UnityEngine;
 using UnityEngine.AI;
@@ -32,13 +32,19 @@ public class EnemyWaveSpawner : MonoBehaviour
     [Header("Spawn Area")]
     [SerializeField] private float spawnRadiusMin = 2.5f;
     [SerializeField] private float spawnRadiusMax = 4.8f;
-    [SerializeField] private bool sampleOnNavMesh = false;
-    [SerializeField] private float navMeshSampleMaxDistance = 2f;
+    [SerializeField] private bool sampleOnNavMesh = true;
+    [SerializeField] private float navMeshSampleMaxDistance = 10f;
+
+    [Header("Power Ups")]
+    [SerializeField] private List<GameObject> powerUpPrefabs = new List<GameObject>();
 
     private readonly List<GameObject> aliveEnemies = new List<GameObject>();
     private Coroutine loop;
 
     private int waveIndex = 1;
+
+    public int CurrentRound => waveIndex;
+    public event Action<int> RoundStarted;
 
     private void OnEnable()
     {
@@ -53,6 +59,71 @@ public class EnemyWaveSpawner : MonoBehaviour
             loop = null;
         }
     }
+
+    private void OnValidate()
+    {
+#if UNITY_EDITOR
+        AutoPopulatePowerUpPrefabsFromProject();
+#endif
+    }
+
+#if UNITY_EDITOR
+    private void AutoPopulatePowerUpPrefabsFromProject()
+    {
+        if (powerUpPrefabs == null)
+        {
+            powerUpPrefabs = new List<GameObject>();
+        }
+
+        string[] guids = UnityEditor.AssetDatabase.FindAssets("t:prefab", new[] { "Assets/Prefabs/PowerUps" });
+        if (guids == null || guids.Length == 0)
+        {
+            guids = UnityEditor.AssetDatabase.FindAssets("PowerUp t:prefab");
+        }
+
+        if (guids == null || guids.Length == 0)
+        {
+            return;
+        }
+
+        var loadedPrefabs = new List<GameObject>();
+        for (int i = 0; i < guids.Length; i++)
+        {
+            string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[i]);
+            var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (prefab != null)
+            {
+                loadedPrefabs.Add(prefab);
+            }
+        }
+
+        if (loadedPrefabs.Count == 0)
+        {
+            return;
+        }
+
+        bool changed = powerUpPrefabs.Count != loadedPrefabs.Count;
+        if (!changed)
+        {
+            for (int i = 0; i < loadedPrefabs.Count; i++)
+            {
+                if (powerUpPrefabs[i] != loadedPrefabs[i])
+                {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        powerUpPrefabs = loadedPrefabs;
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+#endif
 
     private IEnumerator Loop()
     {
@@ -92,17 +163,30 @@ public class EnemyWaveSpawner : MonoBehaviour
             }
 
             int waveSize = ComputeWaveSize(waveIndex);
+            Debug.Log($"[EnemyWaveSpawner] Starting wave {waveIndex} with size {waveSize}");
 
             if (timeBetweenWaves > 0f)
             {
                 yield return new WaitForSeconds(timeBetweenWaves);
             }
 
+            RoundStarted?.Invoke(waveIndex);
+
             for (int i = 0; i < waveSize; i++)
             {
                 if (IsGameOver()) break;
 
                 var prefab = ChooseEnemyPrefab();
+                if (prefab == null)
+                {
+                    Debug.LogWarning("[EnemyWaveSpawner] No enemy prefab chosen — check Enemy Types in inspector.");
+                    yield return null;
+                    continue;
+                }
+                else
+                {
+                    Debug.Log($"[EnemyWaveSpawner] Spawning prefab: {prefab.name}");
+                }
                 if (prefab == null)
                 {
                     yield return null;
@@ -166,15 +250,9 @@ public class EnemyWaveSpawner : MonoBehaviour
 
     private int ComputeWaveSize(int wave)
     {
-        int size = Mathf.Max(1, startWaveSize);
-        int doubles = Mathf.Max(0, wave - 1);
-
-        for (int i = 0; i < doubles; i++)
-        {
-            if (size >= maxEnemiesPerWave) return maxEnemiesPerWave;
-            size *= 2;
-        }
-
+        // Linear growth: startWaveSize, then +1 enemy each wave (1,2,3,...)
+        int baseSize = Mathf.Max(1, startWaveSize);
+        int size = baseSize + Mathf.Max(0, wave - 1);
         return Mathf.Min(size, maxEnemiesPerWave);
     }
 
@@ -225,9 +303,11 @@ public class EnemyWaveSpawner : MonoBehaviour
 
         if (NavMesh.SamplePosition(candidate, out var hit, navMeshSampleMaxDistance, NavMesh.AllAreas))
         {
+            Debug.Log($"[EnemyWaveSpawner] Spawn position snapped to NavMesh at {hit.position}");
             return hit.position;
         }
 
+        Debug.LogWarning($"[EnemyWaveSpawner] No NavMesh hit near {candidate}, using candidate position. Increase navMeshSampleMaxDistance or bake NavMesh.");
         return candidate;
     }
 

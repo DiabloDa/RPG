@@ -14,7 +14,7 @@ public class AttackState : State
 
     public override void Enter()
     {
-        if (enemy.agent != null)
+        if (enemy.CanUseNavMeshAgent())
         {
             enemy.agent.isStopped = true;
             enemy.agent.ResetPath();
@@ -77,7 +77,7 @@ public class AttackState : State
 
     public override void Exit()
     {
-        if (enemy.agent != null)
+        if (enemy.CanUseNavMeshAgent())
         {
             enemy.agent.isStopped = false;
         }

@@ -13,6 +13,13 @@ public class PowerUpPickup : MonoBehaviour
     [SerializeField, Min(0f)] private float durationSeconds = 5f;
     [SerializeField] private bool destroyOnPickup = true;
 
+    public void Configure(PowerUpKind kind, float duration, bool shouldDestroyOnPickup = true)
+    {
+        powerUpKind = kind;
+        durationSeconds = Mathf.Max(0f, duration);
+        destroyOnPickup = shouldDestroyOnPickup;
+    }
+
     private void Awake()
     {
         var col = GetComponent<Collider>();
@@ -29,18 +36,20 @@ public class PowerUpPickup : MonoBehaviour
             return;
         }
 
-        if (Game.Instance == null || Game.Instance.PlayerPowerUps == null)
-        {
-            return;
-        }
-
         switch (powerUpKind)
         {
             case PowerUpKind.Invulnerability:
-                Game.Instance.PlayerPowerUps.ApplyInvulnerability(durationSeconds);
+                if (Game.Instance != null && Game.Instance.PlayerPowerUps != null)
+                {
+                    Game.Instance.PlayerPowerUps.ApplyInvulnerability(durationSeconds);
+                }
                 break;
             case PowerUpKind.DoubleDamage:
-                Game.Instance.PlayerPowerUps.ApplyDoubleDamage(durationSeconds);
+                DamageBoostRuntime.Activate(2f, durationSeconds);
+                if (Game.Instance != null && Game.Instance.PlayerPowerUps != null)
+                {
+                    Game.Instance.PlayerPowerUps.ApplyDoubleDamage(durationSeconds);
+                }
                 break;
         }
 

@@ -77,4 +77,17 @@ public class Game : MonoBehaviour
 
     }
 
+    public void ResetRun()
+    {
+        if (playerOneCharacter != null)
+        {
+            playerOneCharacter.ResetState();
+        }
+
+        if (playerPowerUps != null)
+        {
+            playerPowerUps.ResetPowerUps();
+        }
+    }
+
 }

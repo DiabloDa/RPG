@@ -30,7 +30,7 @@ public class AttackController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float directionExitDeadzone = 0.25f;
     [SerializeField, Min(0f)] private float directionBufferSeconds = 0.2f;
     [SerializeField, Range(0f, 1f)] private float attackAxisMagnitude = 0.75f;
-    [Tooltip("If no movement keys are pressed (raw move input is zero), attacks will go to camera forward instead of using the last movement direction.")]
+    [Tooltip("If enabled, attacks always resolve to the camera's forward direction instead of the last movement direction.")]
     [SerializeField] private bool noInputAttacksUseCameraForward = true;
 
     [Header("Input Buffer")]
@@ -87,6 +87,8 @@ public class AttackController : MonoBehaviour
     private Transform _attackRotationRoot;
     private Quaternion _attackTargetRotation;
     private bool _hasAttackTargetRotation;
+    private Vector3 _lightAttackStartPosition;
+    private bool _freezeLightAttackPosition;
 
     [Header("Debug/Compatibility")]
     [Tooltip("If true, the controller will auto-toggle hitboxes at a timed strike window when AnimationEvents are missing. Useful for testing or clips without events.")]
@@ -106,6 +108,7 @@ public class AttackController : MonoBehaviour
     [SerializeField] private bool aggressiveOverlapStrike = true;
     [SerializeField, Min(0f)] private float aggressiveRadius = 1.2f;
     [SerializeField] private Vector3 aggressiveOffset = new Vector3(0f, 0.9f, 1.0f);
+    [SerializeField] private bool lockPositionDuringLightAttack = true;
 
     public bool IsAttackDirectionLocked => _attackDirectionLocked;
 
@@ -158,9 +161,7 @@ public class AttackController : MonoBehaviour
 
         EnsureAnimationEventReceiver();
 
-        _attackDirectionReference = attackDirectionReferenceOverride != null
-            ? attackDirectionReferenceOverride
-            : (Camera.main != null ? Camera.main.transform : transform);
+        _attackDirectionReference = ResolveAttackDirectionReference();
 
         _attackRotationRoot = attackFacingRootOverride != null ? attackFacingRootOverride : ResolveDefaultAttackFacingRoot();
         _attackTargetRotation = _attackRotationRoot.rotation;
@@ -253,6 +254,27 @@ public class AttackController : MonoBehaviour
         return transform;
     }
 
+    private Transform ResolveAttackDirectionReference()
+    {
+        if (Camera.main != null)
+        {
+            return Camera.main.transform;
+        }
+
+        Camera activeCamera = FindFirstObjectByType<Camera>();
+        if (activeCamera != null && activeCamera.enabled)
+        {
+            return activeCamera.transform;
+        }
+
+        if (attackDirectionReferenceOverride != null)
+        {
+            return attackDirectionReferenceOverride;
+        }
+
+        return _attackDirectionReference != null ? _attackDirectionReference : transform;
+    }
+
     private void BeginAttackRootMotionOverride()
     {
         if (!disableAnimatorRootMotionDuringAttack || animator == null)
@@ -275,6 +297,27 @@ public class AttackController : MonoBehaviour
 
         animator.applyRootMotion = _previousAnimatorApplyRootMotion;
         _restoreAnimatorRootMotion = false;
+    }
+
+    private void OnAnimatorMove()
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        if (IsAttacking && disableAnimatorRootMotionDuringAttack)
+        {
+            return;
+        }
+
+        if (!animator.applyRootMotion)
+        {
+            return;
+        }
+
+        transform.position += animator.deltaPosition;
+        transform.rotation *= animator.deltaRotation;
     }
 
     private void Update()
@@ -368,9 +411,8 @@ public class AttackController : MonoBehaviour
     {
         float now = Time.time;
 
-        // User expectation: if no keys are pressed, attack where the camera looks.
-        // This avoids using animator damped values or buffered last direction.
-        if (noInputAttacksUseCameraForward && _rawMoveInput.sqrMagnitude < 0.0001f)
+        // User expectation: attacks should follow the camera, not the character's last side direction.
+        if (noInputAttacksUseCameraForward)
         {
             return new Vector2(0f, attackAxisMagnitude);
         }
@@ -456,7 +498,7 @@ public class AttackController : MonoBehaviour
         }
 
         // Interpret D/A/W/S relative to the chosen reference (usually the camera), regardless of current character facing.
-        Transform reference = _attackDirectionReference != null ? _attackDirectionReference : transform;
+        Transform reference = ResolveAttackDirectionReference();
         Vector3 worldDir = reference.right * blendDir.x + reference.forward * blendDir.y;
         worldDir = Vector3.ProjectOnPlane(worldDir, _attackRotationRoot.up);
         if (worldDir.sqrMagnitude < 0.0001f)
@@ -665,6 +707,8 @@ public class AttackController : MonoBehaviour
 
         LockAttackDirection(blendDir);
         BeginAttackRootMotionOverride();
+        _lightAttackStartPosition = transform.position;
+        _freezeLightAttackPosition = lockPositionDuringLightAttack;
 
         CurrentDamageLevel = DamageMessage.DamageLevel.Small;
         IsAttacking = true;
@@ -975,6 +1019,7 @@ public class AttackController : MonoBehaviour
         IsAttacking = false;
         UnlockAttackDirection();
         RestoreAttackRootMotionOverride();
+        _freezeLightAttackPosition = false;
 
         CancelPendingHitboxOpen();
 
@@ -1022,6 +1067,7 @@ public class AttackController : MonoBehaviour
         IsAttacking = false;
         UnlockAttackDirection();
         RestoreAttackRootMotionOverride();
+        _freezeLightAttackPosition = false;
         CancelPendingHitboxOpen();
 
         CancelInvoke(nameof(EndLightChargeFallback));

@@ -5,7 +5,7 @@ public class EnemyHealth : MonoBehaviour, IdamageReceiver<DamageMessage>
 {
     [SerializeField] private float maxHealth = 40f;
     [SerializeField] private bool destroyOnDeath = true;
-    [SerializeField] private float destroyDelay = 0f;
+    [SerializeField] private float destroyDelay = 0.1f;
 
     private float currentHealth;
     private bool dead;

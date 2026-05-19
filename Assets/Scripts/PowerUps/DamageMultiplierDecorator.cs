@@ -12,6 +12,8 @@ public class DamageMultiplierDecorator : PlayerCombatDecoratorBase
         this.expiresAt = Time.time + Math.Max(0f, durationSeconds);
     }
 
+    public float Multiplier => multiplier;
+
     public override void DepleteHealth(float healthDepletion, out bool zeroHealth)
     {
         if (Time.time >= expiresAt)

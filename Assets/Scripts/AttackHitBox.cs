@@ -386,10 +386,11 @@ public class AttackHitBox : MonoBehaviour, IDamageSender<DamageMessage>
     private System.Collections.IEnumerator TemporarilyStopAgent(UnityEngine.AI.NavMeshAgent agent, float seconds)
     {
         if (agent == null) yield break;
+        if (!agent.enabled || !agent.isOnNavMesh) yield break;
         bool wasStopped = agent.isStopped;
         agent.isStopped = true;
         yield return new WaitForSeconds(seconds);
-        if (agent != null)
+        if (agent != null && agent.enabled && agent.isOnNavMesh)
         {
             agent.isStopped = wasStopped;
         }
