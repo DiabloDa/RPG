@@ -1,5 +1,7 @@
 using UnityEngine;
 using System.Collections;
+using UnityEngine.UI;
+using TMPro;
 
 public class ChangeCharacter : MonoBehaviour
 {
@@ -10,12 +12,18 @@ public class ChangeCharacter : MonoBehaviour
     [SerializeField] private GameObject char1Pos;
     [SerializeField] private GameObject char2Pos;
 
+    [SerializeField] private GameObject HPBar1;
+    [SerializeField] private GameObject HPBar2;
+
     [SerializeField] private GameObject camara1;
     [SerializeField] private GameObject camara2;
     void Start()
     {
         character1.SetActive(true);    
         character2.SetActive(false);
+
+        HPBar1.SetActive(true);
+        HPBar2.SetActive(false);
 
         camara1.SetActive(true);
         camara2.SetActive(false);
@@ -39,6 +47,9 @@ public class ChangeCharacter : MonoBehaviour
             
             character1.SetActive(true) ;
             character2 .SetActive(false) ;
+
+            HPBar1.SetActive(true);
+            HPBar2.SetActive(false);
             
         }
         if (Input.GetKeyDown(KeyCode.Alpha2)) 
@@ -47,6 +58,9 @@ public class ChangeCharacter : MonoBehaviour
 
             character2.SetActive(true) ; 
             character1 .SetActive(false) ;
+
+            HPBar2.SetActive(true);
+            HPBar1.SetActive(false);
         }
     }
 

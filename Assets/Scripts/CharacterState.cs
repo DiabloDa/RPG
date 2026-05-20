@@ -1,5 +1,7 @@
 using System;
 using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 
 public class CharacterState : MonoBehaviour
 {
@@ -24,6 +26,7 @@ public class CharacterState : MonoBehaviour
         _currentStamina = _startStamina;
         _currentHealth = _startHealth;
         _hasDied = _currentHealth <= 0f;
+       
     }
 
     public void ResetState()
@@ -36,6 +39,7 @@ public class CharacterState : MonoBehaviour
     private void Update()
     {
         RegenerateStamina(_staminaRegen * Time.deltaTime);
+     
     }
 
     private void RegenerateStamina(float staminaRegen)
